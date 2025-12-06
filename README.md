@@ -8,18 +8,65 @@ LifeOS is a comprehensive platform that integrates health tracking, marathon tra
 
 ## 🏗️ Architecture Overview
 
+### System Architecture: Workflows → Agents → Skills → Tools
+
+LifeOS follows a strict hierarchical architecture that separates concerns:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  WORKFLOWS - Orchestrated sequences (entry points)              │
+│  Examples: MorningFlow (6:05 AM cron), ChatFlow (user queries)  │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │ uses
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  AGENTS - LLM-powered interpretation/creativity/strategy        │
+│  Examples: HealthAgent, TrainingCoachAgent                      │
+│  Key: Agents RECEIVE data, they don't FETCH it                  │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │ uses
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  SKILLS - Bundled tool sequences for specific tasks (no LLM)    │
+│  Examples: SyncGarminMetrics, LoadAgentContext, WriteWhiteboard │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │ uses
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  TOOLS - Atomic operations                                      │
+│  Examples: garminClient.getStats(), db.upsert(), formatPace()   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Why this architecture?**
+- **Fast chat responses** (<10s): Context is pre-loaded, agents just interpret
+- **Reliable cron jobs**: Heavy analysis happens in background, not during chat
+- **Clear separation**: Each layer has one job, making debugging easy
+
 ### Monorepo Structure (Turborepo)
 
 ```
 LifeOS/
 ├── apps/
 │   └── web/                    # Next.js 14 web application
+│       └── app/api/
+│           ├── chat/           # Chat endpoint (uses ChatFlow)
+│           └── cron/
+│               ├── morning/    # Daily flow (uses MorningFlow)
+│               └── garmin-sync/# Direct Garmin data sync
 ├── packages/
 │   ├── core/                   # Shared types, schemas, utilities
 │   ├── database/               # Supabase client, repositories, migrations
+│   ├── workflows/              # Orchestrated flows (MorningFlow, ChatFlow)
 │   ├── agents/                 # AI agents (Health, Training Coach)
-│   ├── llm/                    # LLM providers (Anthropic, OpenAI)
-│   └── orchestrator/           # Agent coordination system
+│   ├── skills/                 # Deterministic data operations
+│   │   ├── garmin/             # SyncGarminMetrics
+│   │   ├── context/            # LoadAgentContext
+│   │   └── whiteboard/         # WriteWhiteboard
+│   ├── llm/                    # Multi-provider LLM client
+│   ├── orchestrator/           # Legacy agent coordination
+│   └── integrations/
+│       └── garmin/             # Garmin MCP client
 ├── scripts/                    # Database seeding and import scripts
 └── supabase/                   # Legacy migrations (moved to packages/database)
 ```
@@ -108,20 +155,40 @@ Blood panel and biomarker tracking:
 
 ## 🤖 Agent System
 
+### How Agents Work (New Architecture)
+
+Agents are **pure interpreters** - they receive all data via context and respond without fetching additional data:
+
+```typescript
+// Chat Flow - Fast because data is pre-loaded
+const context = await loadAgentContext(supabase, userId);  // Skill
+const response = await agent.respond(context, message);     // Agent (no tools!)
+```
+
 ### Health Agent (`packages/agents/src/health/`)
 
 Monitors daily health status and provides recommendations.
 
-**Tools:**
-- `get_health_snapshot` - Retrieve today's health data
-- `get_recent_workouts` - Review recent training
-- `check_injuries` - Review active injuries
-- `assess_recovery` - Calculate recovery score
-- `post_to_whiteboard` - Share insights with other agents
+**Receives (via context):**
+- Today's health snapshot (sleep, HRV, resting HR, body battery)
+- Recent health trend (7 days)
+- Active injuries
+- Whiteboard notes from other agents
+
+**Outputs:**
+- Recovery assessment
+- Concerns and alerts
+- Recommendations for the day
 
 ### Training Coach Agent (`packages/agents/src/training/`)
 
 AI running coach with detailed workout analysis and plan adaptation.
+
+**Receives (via context):**
+- Today's scheduled workout
+- Recent completed workouts
+- Training plan phase and week
+- Health/recovery data
 
 **Coaching Philosophy:**
 - 80/20 polarized training (easy/hard distribution)
@@ -129,21 +196,29 @@ AI running coach with detailed workout analysis and plan adaptation.
 - Data-driven decisions with athlete intuition
 - Progressive overload with strategic recovery weeks
 
-**Tools:**
-- `analyze_workout` - Deep dive into completed workout metrics
-- `assess_readiness` - Pre-workout readiness check
-- `adapt_plan` - Modify upcoming workouts based on fatigue/life stress
-- `generate_week_summary` - Weekly training analysis
-- `calculate_training_load` - Acute/chronic workload ratios
+**Outputs:**
+- Workout guidance and modifications
+- Training load assessments
+- Weekly summaries
 
 ### Whiteboard System
 
-Agents communicate through a shared whiteboard:
-- **Observations**: Data-driven insights
-- **Suggestions**: Recommended actions
-- **Alerts**: Urgent attention needed
-- **Questions**: Requests for user input
-- **Plans**: Proposed schedules/adaptations
+Agents communicate through a shared whiteboard. Skills handle writing; agents generate the content:
+
+| Entry Type | Purpose |
+|------------|---------|
+| `insight` | Data-driven observations |
+| `alert` | Urgent attention needed |
+| `recommendation` | Suggested actions |
+| `summary` | Periodic summaries |
+| `note` | General notes |
+
+### Workflows
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| **MorningFlow** | 6:05 AM cron | Sync Garmin → Analyze health → Analyze training → Write whiteboard |
+| **ChatFlow** | User message | Load context → Route to agent → Respond |
 
 ---
 
@@ -250,29 +325,41 @@ SUPABASE_URL=https://xxx.supabase.co
 SUPABASE_ANON_KEY=eyJ...
 SUPABASE_SERVICE_KEY=eyJ...
 
-# LLM Providers
+# LLM Providers (both needed for multi-provider support)
 ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...
 
+# Garmin Integration
+GARMIN_EMAIL=your@email.com
+GARMIN_PASSWORD=your_password
+
 # App Config
 USER_ID=00000000-0000-0000-0000-000000000001
-DEFAULT_LLM_PROVIDER=anthropic
+TIMEZONE=America/Los_Angeles
+CRON_SECRET=your_secret_for_cron_auth
 ```
 
 ---
 
 ## 🗺️ Roadmap / Future Work
 
+### Completed ✅
+- [x] Garmin Connect integration via MCP server
+- [x] Multi-provider LLM support (Anthropic + OpenAI)
+- [x] Workflows/Skills/Tools architecture
+- [x] Morning flow with automated analysis
+- [x] Fast chat responses (<10s)
+- [x] Interactive chat with Training Coach
+
 ### Immediate
 - [ ] Import blood panel CSV data (script exists: `scripts/import-lab-panels.ts`)
-- [ ] Add repositories for training plans, phases, biomarkers
-- [ ] Complete Zod schemas for new types
+- [ ] Training plan UI for viewing weekly schedule
+- [ ] Dashboard with health metrics and whiteboard
 
 ### Short-term
-- [ ] Real-time workout sync from Garmin Connect API
 - [ ] Google Calendar integration
-- [ ] Morning/evening digest generation
-- [ ] Interactive chat with Training Coach
+- [ ] Evening digest workflow
+- [ ] Workout completion flow via chat
 
 ### Long-term
 - [ ] Multi-user support
@@ -283,7 +370,33 @@ DEFAULT_LLM_PROVIDER=anthropic
 
 ---
 
+## 🏃 Garmin Integration
+
+LifeOS connects to Garmin Connect via the [Garmin MCP Server](https://github.com/Taxuspt/garmin_mcp):
+
+### Data Synced
+| Metric | Table | Sync Frequency |
+|--------|-------|----------------|
+| Daily stats (steps, calories, stress) | `health_snapshots` | Daily (6:05 AM) |
+| Sleep (hours, stages, body battery) | `health_snapshots` | Daily (6:05 AM) |
+| HRV (last night avg, status) | `health_snapshots` | Daily (6:05 AM) |
+| Activities (runs, workouts) | `workouts` | Daily (6:05 AM) |
+
+### How It Works
+1. Python MCP server spawned as subprocess
+2. Communicates via stdio using JSON-RPC protocol
+3. Skills handle sync logic (`packages/skills/src/garmin/`)
+4. Data stored in PostgreSQL via Supabase
+
+---
+
 ## 📝 Design Principles
+
+### Architecture
+1. **Workflows orchestrate** - Entry points for cron jobs and API endpoints
+2. **Agents interpret** - LLM-powered analysis, receive data via context
+3. **Skills operate** - Deterministic data operations, no LLM
+4. **Tools are atomic** - Single responsibility operations
 
 ### Database
 1. **JSONB for flexibility** - Use for evolving data that varies by context (metadata, device_data, structured_data)
@@ -293,9 +406,9 @@ DEFAULT_LLM_PROVIDER=anthropic
 5. **RLS policies** - Row-level security for multi-user future
 
 ### Agents
-1. **Single responsibility** - Each agent has a focused domain
-2. **Whiteboard communication** - Agents share context through structured entries
-3. **Tool-based actions** - Agents use defined tools, not raw SQL
+1. **Pure interpreters** - Agents receive data, they don't fetch it
+2. **Whiteboard communication** - Skills write; agents generate content
+3. **No tools in chat** - Context is pre-loaded for fast responses
 4. **Logging everything** - All agent runs are recorded for debugging
 
 ### Code

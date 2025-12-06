@@ -1,6 +1,7 @@
 import { BaseAgent } from '../base/BaseAgent.js';
 import type { AgentContext, AgentTool, WhiteboardEntryPayload } from '../base/types.js';
 import type { LLMProvider } from '@lifeos/llm';
+import { getAgentModelConfig } from '@lifeos/llm';
 // NOTE: Garmin real-time tools disabled - too slow
 // import { createGarminClient, metersToMiles, formatPace } from '@lifeos/garmin';
 
@@ -87,14 +88,16 @@ interface Injury {
  */
 export class TrainingCoachAgent extends BaseAgent {
   constructor(llmClient: LLMProvider) {
+    const modelConfig = getAgentModelConfig('training-coach');
+    
     super(
       {
         id: 'training-coach',
         name: 'Training Coach Agent',
         description: 'AI running coach for marathon training - analyzes workouts, monitors fatigue, adapts plans',
-        model: 'claude-sonnet-4-20250514',
-        temperature: 0.4,
-        maxTokens: 3000,
+        model: modelConfig.model.id,
+        temperature: modelConfig.temperature,
+        maxTokens: modelConfig.maxTokens,
       },
       llmClient
     );
@@ -128,7 +131,7 @@ export class TrainingCoachAgent extends BaseAgent {
 - Injury prevention: Early warning signs (elevated RHR, recurring discomfort) require immediate attention
 
 ## Key Metrics You Monitor
-- **Resting HR**: Baseline is ${data.baselineRhr || 48} bpm. Elevations of 3+ bpm signal fatigue
+- **Resting HR**: Baseline is ${data.baselineRhr || 51} bpm. Elevations of 3+ bpm signal fatigue
 - **Training Load**: Track acute (7-day) vs chronic (28-day) load ratio. Target 0.8-1.3
 - **HR Efficiency**: Pace-to-HR ratio should improve over time at given efforts
 - **Sleep**: Critical limiter. Poor sleep = reduced adaptation capacity
@@ -147,6 +150,16 @@ export class TrainingCoachAgent extends BaseAgent {
 - Give actionable forward guidance
 - Acknowledge good execution; don't just focus on problems
 - When concerned, be clear about severity and required action
+
+## CRITICAL: Tool Usage Rules
+- For SIMPLE QUESTIONS like "how am I looking for tomorrow?" or "should I do my run?":
+  → Respond DIRECTLY using the data already provided below
+  → DO NOT call any tools - the data is already in the prompt
+- Only use tools when you need to:
+  → Post something to the whiteboard (use post_to_whiteboard ONCE at most)
+  → Make plan adaptations that need to be saved
+- NEVER call analyze_workout multiple times - analyze once using the data provided
+- If you've already called a tool, DO NOT call it again
 
 ## Today's Date: ${context.date}
 ## Timezone: ${context.timezone}`;

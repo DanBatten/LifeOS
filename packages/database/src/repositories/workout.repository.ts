@@ -80,7 +80,8 @@ export class WorkoutRepository extends BaseRepository<
   }
 
   /**
-   * Find recent completed workouts
+   * Find recent completed workouts (deduplicated by date)
+   * Prefers training plan workouts over standalone Garmin syncs
    */
   async findRecentCompleted(userId: string, days: number): Promise<Workout[]> {
     const startDate = subtractDays(new Date(), days);
@@ -96,7 +97,35 @@ export class WorkoutRepository extends BaseRepository<
 
     if (error) throw error;
 
-    return (data || []).map((item) => this.transformFromDb(item));
+    const workouts = (data || []).map((item) => this.transformFromDb(item));
+    
+    // Deduplicate: if multiple workouts on same date, prefer training plan workouts
+    const byDate = new Map<string, Workout>();
+    for (const workout of workouts) {
+      const rawDate = workout.scheduledDate;
+      if (!rawDate) continue;
+      
+      // Convert to string key (handle both Date and string types)
+      const dateKey = rawDate instanceof Date 
+        ? rawDate.toISOString().split('T')[0] 
+        : String(rawDate);
+      
+      const existing = byDate.get(dateKey);
+      if (!existing) {
+        byDate.set(dateKey, workout);
+      } else {
+        // Prefer workout with planId (training plan workout) over Garmin-only sync
+        const existingHasPlan = !!existing.planId;
+        const currentHasPlan = !!workout.planId;
+        
+        if (currentHasPlan && !existingHasPlan) {
+          byDate.set(dateKey, workout);
+        }
+        // If both or neither have plan, keep first (already sorted by date desc)
+      }
+    }
+    
+    return Array.from(byDate.values());
   }
 
   /**

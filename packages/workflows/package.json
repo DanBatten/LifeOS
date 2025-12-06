@@ -1,0 +1,41 @@
+{
+  "name": "@lifeos/workflows",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./morning-flow": {
+      "types": "./dist/morning-flow.workflow.d.ts",
+      "import": "./dist/morning-flow.workflow.js"
+    },
+    "./chat-flow": {
+      "types": "./dist/chat-flow.workflow.d.ts",
+      "import": "./dist/chat-flow.workflow.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "@lifeos/core": "*",
+    "@lifeos/database": "*",
+    "@lifeos/skills": "*",
+    "@lifeos/agents": "*",
+    "@lifeos/llm": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.0"
+  }
+}
+

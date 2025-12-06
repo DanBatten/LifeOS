@@ -1,4 +1,5 @@
 import type { LLMProvider } from '@lifeos/llm';
+import { getAgentModelConfig } from '@lifeos/llm';
 import { BaseAgent } from '../base/BaseAgent.js';
 import type { AgentContext, AgentTool } from '../base/types.js';
 import { getHealthTools } from './tools.js';
@@ -12,14 +13,16 @@ import { HEALTH_AGENT_SYSTEM_PROMPT, HEALTH_USER_PROMPT_TEMPLATE } from './promp
  */
 export class HealthAgent extends BaseAgent {
   constructor(llmClient: LLMProvider) {
+    const modelConfig = getAgentModelConfig('health-agent');
+    
     super(
       {
         id: 'health-agent',
         name: 'Health & Recovery Agent',
         description: 'Monitors health metrics, analyzes recovery, and provides recommendations',
-        model: 'claude-sonnet-4-20250514',
-        temperature: 0.3,
-        maxTokens: 2000,
+        model: modelConfig.model.id,
+        temperature: modelConfig.temperature,
+        maxTokens: modelConfig.maxTokens,
       },
       llmClient
     );

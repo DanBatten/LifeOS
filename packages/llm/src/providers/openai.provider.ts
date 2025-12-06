@@ -36,6 +36,7 @@ export class OpenAIProvider extends BaseLLMProvider {
   async chat(request: LLMRequest): Promise<LLMResponse> {
     try {
       const tools = request.tools?.map((tool) => this.convertTool(tool));
+      const model = this.resolveModel(request.model);
 
       const messages: OpenAI.ChatCompletionMessageParam[] = [
         { role: 'system', content: request.systemPrompt },
@@ -45,9 +46,14 @@ export class OpenAIProvider extends BaseLLMProvider {
         })),
       ];
 
+      // GPT-5.x and o-series models use max_completion_tokens instead of max_tokens
+      const maxTokensParam = this.isNewModelFormat(model)
+        ? { max_completion_tokens: this.resolveMaxTokens(request.maxTokens) }
+        : { max_tokens: this.resolveMaxTokens(request.maxTokens) };
+
       const response = await this.client.chat.completions.create({
-        model: this.resolveModel(request.model),
-        max_tokens: this.resolveMaxTokens(request.maxTokens),
+        model,
+        ...maxTokensParam,
         temperature: this.resolveTemperature(request.temperature),
         messages,
         tools: tools?.length ? tools : undefined,
@@ -59,6 +65,15 @@ export class OpenAIProvider extends BaseLLMProvider {
     }
   }
 
+  /**
+   * Check if model uses the newer API format (max_completion_tokens)
+   */
+  private isNewModelFormat(model: string): boolean {
+    return model.startsWith('gpt-5') || 
+           model.startsWith('o1') || 
+           model.startsWith('o3');
+  }
+
   async continueWithToolResults(
     request: LLMRequest,
     previousResponse: LLMResponse,
@@ -66,6 +81,7 @@ export class OpenAIProvider extends BaseLLMProvider {
   ): Promise<LLMResponse> {
     try {
       const tools = request.tools?.map((tool) => this.convertTool(tool));
+      const model = this.resolveModel(request.model);
 
       // Build messages with tool calls and results
       const messages: OpenAI.ChatCompletionMessageParam[] = [
@@ -95,9 +111,14 @@ export class OpenAIProvider extends BaseLLMProvider {
         })),
       ];
 
+      // GPT-5.x and o-series models use max_completion_tokens instead of max_tokens
+      const maxTokensParam = this.isNewModelFormat(model)
+        ? { max_completion_tokens: this.resolveMaxTokens(request.maxTokens) }
+        : { max_tokens: this.resolveMaxTokens(request.maxTokens) };
+
       const response = await this.client.chat.completions.create({
-        model: this.resolveModel(request.model),
-        max_tokens: this.resolveMaxTokens(request.maxTokens),
+        model,
+        ...maxTokensParam,
         temperature: this.resolveTemperature(request.temperature),
         messages,
         tools: tools?.length ? tools : undefined,
