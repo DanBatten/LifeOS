@@ -65,8 +65,20 @@ export abstract class BaseAgent extends EventEmitter {
     });
 
     try {
+      // DIAGNOSTIC: Time prompt building
+      const promptStart = Date.now();
       const systemPrompt = this.buildSystemPrompt(context);
+      logger.info(`Agent ${this.id} built system prompt`, { 
+        duration: Date.now() - promptStart,
+        length: systemPrompt.length 
+      });
+      
+      const userPromptStart = Date.now();
       const userPrompt = this.buildUserPrompt(context);
+      logger.info(`Agent ${this.id} built user prompt`, { 
+        duration: Date.now() - userPromptStart,
+        length: userPrompt.length 
+      });
 
       // Build tool definitions for LLM
       const toolDefinitions = this.tools.map((tool) => ({
@@ -74,7 +86,12 @@ export abstract class BaseAgent extends EventEmitter {
         description: tool.description,
         parameters: tool.parameters,
       }));
+      logger.info(`Agent ${this.id} has ${toolDefinitions.length} tools registered`);
 
+      // DIAGNOSTIC: Time LLM call
+      const llmStart = Date.now();
+      logger.info(`Agent ${this.id} sending LLM request...`);
+      
       // Initial LLM call
       let response = await this.llmClient.chat({
         systemPrompt,
@@ -84,11 +101,31 @@ export abstract class BaseAgent extends EventEmitter {
         temperature: this.config.temperature,
         maxTokens: this.config.maxTokens,
       });
+      
+      logger.info(`Agent ${this.id} LLM response received`, {
+        duration: Date.now() - llmStart,
+        toolCalls: response.toolCalls?.length || 0,
+        contentLength: response.content?.length || 0,
+        tokens: response.usage.totalTokens,
+      });
 
       let totalUsage = { ...response.usage };
 
       // Process tool calls in a loop until no more tool calls
+      let loopCount = 0;
+      const maxLoops = 10; // Safety limit
+      
       while (response.toolCalls && response.toolCalls.length > 0) {
+        loopCount++;
+        logger.info(`Agent ${this.id} tool loop iteration ${loopCount}`, {
+          toolCalls: response.toolCalls.map(tc => tc.name),
+        });
+        
+        if (loopCount > maxLoops) {
+          logger.warn(`Agent ${this.id} exceeded max tool loops (${maxLoops}), breaking`);
+          break;
+        }
+        
         const toolResults: ToolResult[] = [];
 
         for (const toolCall of response.toolCalls) {

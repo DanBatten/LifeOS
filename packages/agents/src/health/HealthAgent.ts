@@ -62,6 +62,38 @@ export class HealthAgent extends BaseAgent {
     if (!data || (Array.isArray(data) && data.length === 0)) {
       return emptyMessage;
     }
+    
+    // Limit array size to prevent huge prompts
+    if (Array.isArray(data)) {
+      const limited = data.slice(0, 7); // Max 7 items
+      const summary = limited.map((item: Record<string, unknown>) => {
+        // Extract only key fields to reduce token count
+        if (item.scheduledDate || item.scheduled_date) {
+          // Workout
+          return {
+            date: item.scheduledDate || item.scheduled_date,
+            title: item.title,
+            type: item.workoutType || item.workout_type,
+            status: item.status,
+            duration: item.actualDurationMinutes || item.actual_duration_minutes,
+          };
+        }
+        if (item.snapshotDate || item.snapshot_date) {
+          // Health snapshot
+          return {
+            date: item.snapshotDate || item.snapshot_date,
+            sleepHours: item.sleepHours || item.sleep_hours,
+            sleepQuality: item.sleepQuality || item.sleep_quality,
+            hrv: item.hrv,
+            restingHr: item.restingHr || item.resting_hr,
+            energyLevel: item.energyLevel || item.energy_level,
+          };
+        }
+        return item;
+      });
+      return JSON.stringify(summary, null, 2);
+    }
+    
     return JSON.stringify(data, null, 2);
   }
 }

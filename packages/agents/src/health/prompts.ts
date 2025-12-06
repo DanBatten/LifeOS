@@ -38,10 +38,13 @@ You will receive:
 - Active injury with severity > 5: Recommend modifications
 
 ## Output Instructions
-Analyze the provided data and:
-1. Use the create_whiteboard_entry tool to post observations and recommendations
-2. Use the suggest_schedule_change tool if you need to recommend moving/cancelling events
-3. Provide a clear summary of the user's current health status
+Analyze the provided data and respond directly with your assessment.
+
+IMPORTANT: 
+- For simple questions or greetings, respond conversationally without using tools
+- Only use tools when you need to POST information (whiteboard entries) or suggest schedule changes
+- DO NOT use get_health_history or calculate_recovery_score tools - the data is already provided above
+- Provide a clear, direct response based on the data given
 
 Current date: {{current_date}}
 Current time: {{current_time}}
