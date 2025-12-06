@@ -416,62 +416,55 @@ async function syncActivities(
 ) {
   console.log('\nFetching activities from Garmin...');
 
-  // Calculate date range for activities
-  const endDate = new Date();
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - config.daysBack);
+  // Step 1: Get all activity IDs from list_activities
+  console.log('  Getting activity IDs...');
+  const activityIds = await garmin.listActivityIds(500);
+  console.log(`  Found ${activityIds.length} activity IDs`);
   
-  const startStr = formatDateString(startDate);
-  const endStr = formatDateString(endDate);
+  if (activityIds.length === 0) {
+    console.log('  No activities found');
+    return;
+  }
   
-  console.log(`  Fetching activities from ${startStr} to ${endStr}...`);
-  
-  // Fetch activities by date range (returns structured data)
-  // Note: Garmin MCP might return activities one at a time or as array
+  // Step 2: Fetch each activity's details
   const allActivities: GarminActivity[] = [];
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - config.daysBack);
   
-  // Fetch day by day (Garmin MCP returns 1 activity per query)
-  const dates = getDateRange(startDate, endDate);
-  let fetchedCount = 0;
+  console.log(`  Fetching activity details (cutoff: ${formatDateString(cutoffDate)})...`);
   
-  console.log(`  Checking ${dates.length} days for activities...`);
-  
-  for (let i = 0; i < dates.length; i++) {
-    const date = dates[i];
+  for (let i = 0; i < activityIds.length; i++) {
+    const id = activityIds[i];
     
-    // Progress indicator every 10 days
+    // Progress every 10 activities
     if (i % 10 === 0) {
-      process.stdout.write(`  Day ${i + 1}/${dates.length}...`);
+      process.stdout.write(`  ${i + 1}/${activityIds.length}...`);
     }
     
     try {
-      const response = await garmin.getActivitiesForDate(date);
+      const activity = await garmin.getActivity(id);
       
-      // Handle different response formats
-      if (Array.isArray(response)) {
-        for (const activity of response) {
-          if (activity?.activityId) {
-            allActivities.push(activity);
-            fetchedCount++;
-          }
+      if (activity?.activityId) {
+        // Check if activity is within date range
+        const activityDate = new Date(activity.startTimeLocal || activity.startTimeGMT);
+        
+        if (activityDate >= cutoffDate) {
+          allActivities.push(activity);
         }
-      } else if (response && typeof response === 'object' && (response as any).activityId) {
-        allActivities.push(response as GarminActivity);
-        fetchedCount++;
       }
     } catch {
-      // No activities for this date, continue
+      // Skip failed fetches
     }
     
-    // Progress indicator
-    if (i % 10 === 9 || i === dates.length - 1) {
-      console.log(` ${fetchedCount} activities so far`);
+    // Progress
+    if (i % 10 === 9 || i === activityIds.length - 1) {
+      console.log(` ${allActivities.length} activities in range`);
     }
     
-    await sleep(100); // Rate limiting
+    await sleep(200); // Rate limiting
   }
   
-  console.log(`\nFound ${allActivities.length} activities total`);
+  console.log(`\nFetched ${allActivities.length} activities in date range`);
 
   // Filter to running activities (and walking for recovery walks)
   const relevantActivities = allActivities.filter(a => {
@@ -494,11 +487,12 @@ async function syncActivities(
     try {
       const activityId = String(activity.activityId);
       
-      // Check if already exists
+      // Check if already exists (use external_id which is in original schema)
       const { data: existing } = await supabase
         .from('workouts')
         .select('id')
-        .eq('garmin_activity_id', activityId)
+        .eq('external_id', activityId)
+        .eq('source', 'garmin')
         .maybeSingle();
 
       if (existing) {
@@ -521,7 +515,14 @@ async function syncActivities(
           .from('workouts')
           .insert(workoutData);
 
-        if (error) throw error;
+        if (error) {
+          // Log first error for debugging
+          if (errorCount === 0) {
+            console.log(`\n   First activity error: ${error.message}`);
+            console.log(`   Error details: ${JSON.stringify(error.details || error.hint || 'none')}`);
+          }
+          throw error;
+        }
       }
 
       syncedCount++;
@@ -555,49 +556,55 @@ function mapToWorkout(activity: GarminActivity, userId: string) {
   // Determine workout type based on activity patterns
   const workoutType = categorizeWorkout(activity, avgPaceMinutes);
 
+  // Use ONLY columns from original schema to avoid cache issues
+  // All Garmin-specific data goes into metadata
   return {
     user_id: userId,
-    garmin_activity_id: String(activity.activityId),
     title: activity.activityName,
-    workout_type: mapGarminActivityType(activity.activityType.typeKey),
+    workout_type: mapGarminActivityType(activity.activityType?.typeKey || 'run'),
     status: 'completed',
     scheduled_date: activityDate,
     started_at: startDate.toISOString(),
     completed_at: new Date(startDate.getTime() + activity.duration * 1000).toISOString(),
     actual_duration_minutes: durationMinutes,
-    actual_distance_miles: distanceMiles,
-    avg_pace: avgPace,
-    avg_heart_rate: activity.averageHR,
-    max_heart_rate: activity.maxHR,
-    training_load: activity.activityTrainingLoad,
-    training_effect_aerobic: activity.aerobicTrainingEffect,
-    training_effect_anaerobic: activity.anaerobicTrainingEffect,
-    cadence_avg: activity.avgRunningCadence,
-    cadence_max: activity.maxRunningCadence,
-    ground_contact_time_ms: activity.avgGroundContactTime,
-    vertical_oscillation_cm: activity.avgVerticalOscillation,
-    avg_stride_length_cm: activity.avgStrideLength,
-    avg_vertical_ratio: activity.avgVerticalRatio,
-    avg_power_watts: activity.avgPower,
-    elevation_gain_ft: activity.elevationGain ? Math.round(activity.elevationGain * 3.28084) : null,
-    elevation_loss_ft: activity.elevationLoss ? Math.round(activity.elevationLoss * 3.28084) : null,
-    calories_burned: activity.calories,
-    vo2max_estimate: activity.vO2MaxValue,
-    lactate_threshold_hr: activity.lactateThresholdHeartRate,
-    lactate_threshold_speed: activity.lactateThresholdSpeed,
-    device_data: {
-      source: 'garmin',
-      activityId: activity.activityId,
-      activityType: activity.activityType,
-      maxSpeed: activity.maxSpeed,
-      trainingLoadPeak: activity.trainingLoadPeak,
-    },
+    avg_heart_rate: activity.averageHR || null,
+    max_heart_rate: activity.maxHR || null,
+    calories_burned: activity.calories || null,
+    external_id: String(activity.activityId), // Use external_id instead of garmin_activity_id
     source: 'garmin',
     exercises: [],
     tags: ['garmin-synced', workoutType],
     metadata: {
+      // Store all Garmin data in metadata (bypasses cache issues)
+      garminActivityId: activity.activityId,
       importedAt: new Date().toISOString(),
       backfill: true,
+      // Distance and pace
+      distanceMiles,
+      avgPace,
+      distanceMeters: activity.distance,
+      // Training metrics
+      trainingLoad: activity.activityTrainingLoad,
+      trainingEffectAerobic: activity.aerobicTrainingEffect,
+      trainingEffectAnaerobic: activity.anaerobicTrainingEffect,
+      vo2max: activity.vO2MaxValue,
+      // Running dynamics
+      cadenceAvg: activity.avgRunningCadence,
+      cadenceMax: activity.maxRunningCadence,
+      groundContactTimeMs: activity.avgGroundContactTime,
+      verticalOscillationCm: activity.avgVerticalOscillation,
+      strideLengthCm: activity.avgStrideLength,
+      verticalRatio: activity.avgVerticalRatio,
+      avgPowerWatts: activity.avgPower,
+      // Elevation
+      elevationGainFt: activity.elevationGain ? Math.round(activity.elevationGain * 3.28084) : null,
+      elevationLossFt: activity.elevationLoss ? Math.round(activity.elevationLoss * 3.28084) : null,
+      elevationGainM: activity.elevationGain,
+      elevationLossM: activity.elevationLoss,
+      // Raw activity data
+      activityType: activity.activityType,
+      maxSpeed: activity.maxSpeed,
+      avgSpeed: activity.averageSpeed,
     },
   };
 }

@@ -131,39 +131,27 @@ async function main() {
       console.log(`⚠️  Could not fetch readiness: ${error instanceof Error ? error.message : error}`);
     }
 
-    // Test 6: Recent Activities (by date range)
-    console.log('\n━━━ Test 6: Recent Activities ━━━');
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    console.log(`Fetching activities from ${sevenDaysAgo} to ${today}...`);
+    // Test 6: List Activity IDs
+    console.log('\n━━━ Test 6: List Activity IDs ━━━');
     try {
-      const response = await client.getActivitiesForDateRange(sevenDaysAgo, today) as any;
+      const ids = await client.listActivityIds(10);
+      console.log(`✅ Found ${ids.length} activity IDs:`, ids.slice(0, 5).join(', '), '...');
       
-      // Handle different response formats
-      const activities = Array.isArray(response) ? response : [response];
-      
-      if (activities.length > 0 && activities[0]?.activityId) {
-        console.log(`✅ Found ${activities.length} activities:\n`);
-        for (const activity of activities.slice(0, 5)) {
-          const distance = activity.distance ? metersToMiles(activity.distance) : 0;
-          const duration = activity.duration ? Math.round(activity.duration / 60) : 0;
-          const pace = distance > 0 ? formatPace(duration / distance) : 'N/A';
-          
-          console.log(`   📍 ${activity.activityName || 'Activity'}`);
-          console.log(`      ID: ${activity.activityId}`);
-          console.log(`      Date: ${activity.startTimeLocal || 'N/A'}`);
-          console.log(`      Type: ${activity.activityType?.typeKey || 'N/A'}`);
-          console.log(`      Distance: ${distance.toFixed(2)} mi | Duration: ${duration} min | Pace: ${pace}`);
-          console.log(`      HR: ${activity.averageHR || 'N/A'} avg / ${activity.maxHR || 'N/A'} max`);
-          console.log(`      Training Load: ${activity.activityTrainingLoad || 'N/A'}`);
-          console.log(`      VO2Max: ${activity.vO2MaxValue || 'N/A'}`);
-          console.log('');
+      if (ids.length > 0) {
+        // Test fetching first activity by ID
+        console.log(`\n   Fetching activity ${ids[0]}...`);
+        const activity = await client.getActivity(ids[0]) as any;
+        
+        if (activity) {
+          console.log('   activityId:', activity.activityId);
+          console.log('   activityName:', activity.activityName);
+          console.log('   activityTypeDTO:', JSON.stringify(activity.activityTypeDTO));
+          console.log('   metadataDTO keys:', Object.keys(activity.metadataDTO || {}));
+          console.log('   summaryDTO:', JSON.stringify(activity.summaryDTO, null, 2)?.substring(0, 2000));
         }
-      } else {
-        console.log('   Response type:', typeof response);
-        console.log('   Keys:', Object.keys(response || {}).slice(0, 10).join(', '));
       }
     } catch (error) {
-      console.log(`⚠️  Could not fetch activities: ${error instanceof Error ? error.message : error}`);
+      console.log(`⚠️  Error: ${error instanceof Error ? error.message : error}`);
     }
 
     console.log('='.repeat(50));

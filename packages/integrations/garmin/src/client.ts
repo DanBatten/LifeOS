@@ -295,11 +295,61 @@ export class GarminMCPClient {
   // ===========================================
 
   /**
-   * List recent activities (uses the list_activities tool)
+   * List recent activities - parses text output and fetches structured data
    */
-  async listActivities(_limit = 10): Promise<GarminActivity[]> {
-    // Note: Garmin MCP list_activities doesn't support limit parameter
-    return this.callTool<GarminActivity[]>('list_activities', {});
+  async listActivities(limit = 20): Promise<GarminActivity[]> {
+    // list_activities returns text, parse it for IDs
+    const textResult = await this.callTool<string>('list_activities', {});
+    
+    if (typeof textResult !== 'string') {
+      return [];
+    }
+    
+    // Parse activity IDs from text: "ID: 21176648266"
+    const idMatches = textResult.matchAll(/ID:\s*(\d+)/g);
+    const activityIds: number[] = [];
+    
+    for (const match of idMatches) {
+      activityIds.push(parseInt(match[1], 10));
+      if (activityIds.length >= limit) break;
+    }
+    
+    // Fetch each activity with structured data
+    const activities: GarminActivity[] = [];
+    
+    for (const id of activityIds) {
+      try {
+        const activity = await this.getActivity(id);
+        if (activity?.activityId) {
+          activities.push(activity);
+        }
+      } catch {
+        // Skip failed fetches
+      }
+    }
+    
+    return activities;
+  }
+  
+  /**
+   * Get all activity IDs from list_activities text output
+   */
+  async listActivityIds(limit = 100): Promise<number[]> {
+    const textResult = await this.callTool<string>('list_activities', {});
+    
+    if (typeof textResult !== 'string') {
+      return [];
+    }
+    
+    const idMatches = textResult.matchAll(/ID:\s*(\d+)/g);
+    const activityIds: number[] = [];
+    
+    for (const match of idMatches) {
+      activityIds.push(parseInt(match[1], 10));
+      if (activityIds.length >= limit) break;
+    }
+    
+    return activityIds;
   }
 
   /**
@@ -311,9 +361,56 @@ export class GarminMCPClient {
 
   /**
    * Get detailed activity information
+   * Note: Normalizes the nested DTO format to our flat GarminActivityDetail format
    */
   async getActivity(activityId: number): Promise<GarminActivityDetail> {
-    return this.callTool<GarminActivityDetail>('get_activity', { activity_id: String(activityId) });
+    const raw = await this.callTool<Record<string, unknown>>('get_activity', { activity_id: String(activityId) });
+    
+    // Normalize nested DTO format to flat format
+    return this.normalizeActivityResponse(raw);
+  }
+  
+  /**
+   * Normalize Garmin's nested DTO response to our flat format
+   */
+  private normalizeActivityResponse(raw: Record<string, unknown>): GarminActivityDetail {
+    const summary = raw.summaryDTO as Record<string, unknown> || {};
+    const activityType = raw.activityTypeDTO as Record<string, unknown> || {};
+    // Note: metadataDTO available but not used in current type
+    // const metadata = raw.metadataDTO as Record<string, unknown> || {};
+    
+    return {
+      activityId: raw.activityId as number,
+      activityName: raw.activityName as string,
+      activityType: {
+        typeId: activityType.typeId as number,
+        typeKey: activityType.typeKey as string,
+        parentTypeId: activityType.parentTypeId as number,
+      },
+      startTimeLocal: summary.startTimeLocal as string,
+      startTimeGMT: summary.startTimeGMT as string,
+      duration: summary.duration as number,
+      distance: summary.distance as number,
+      calories: summary.calories as number,
+      averageHR: summary.averageHR as number,
+      maxHR: summary.maxHR as number,
+      averageSpeed: summary.averageSpeed as number,
+      maxSpeed: summary.maxSpeed as number,
+      elevationGain: summary.elevationGain as number,
+      elevationLoss: summary.elevationLoss as number,
+      avgStrideLength: summary.strideLength as number,
+      avgVerticalOscillation: summary.verticalOscillation as number,
+      avgGroundContactTime: summary.groundContactTime as number,
+      avgVerticalRatio: summary.verticalRatio as number,
+      avgRunningCadence: summary.averageRunCadence as number,
+      maxRunningCadence: summary.maxRunCadence as number,
+      avgPower: summary.averagePower as number,
+      maxPower: summary.maxPower as number,
+      aerobicTrainingEffect: summary.trainingEffect as number,
+      anaerobicTrainingEffect: summary.anaerobicTrainingEffect as number,
+      activityTrainingLoad: summary.activityTrainingLoad as number,
+      vO2MaxValue: summary.vO2MaxValue as number,
+    };
   }
 
   /**
