@@ -11,6 +11,12 @@ const envSchema = z.object({
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
   OPENAI_API_KEY: z.string().min(1).optional(),
 
+  // Garmin Integration
+  GARMIN_EMAIL: z.string().email().optional(),
+  GARMIN_PASSWORD: z.string().min(1).optional(),
+  GARMIN_EMAIL_FILE: z.string().optional(),
+  GARMIN_PASSWORD_FILE: z.string().optional(),
+
   // App
   USER_ID: z.string().uuid().default('00000000-0000-0000-0000-000000000001'),
   CRON_SECRET: z.string().min(1).optional(),

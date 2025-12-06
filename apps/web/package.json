@@ -12,6 +12,7 @@
   "dependencies": {
     "@lifeos/core": "*",
     "@lifeos/database": "*",
+    "@lifeos/garmin": "*",
     "@lifeos/llm": "*",
     "@lifeos/agents": "*",
     "@lifeos/orchestrator": "*",
