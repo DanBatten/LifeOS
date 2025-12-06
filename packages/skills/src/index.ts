@@ -16,6 +16,10 @@ export {
   syncGarminMetrics,
   type SyncMetricsResult,
   type SyncMetricsOptions,
+  syncLatestActivity,
+  type SyncedWorkout,
+  type SyncActivityResult,
+  type SyncActivityOptions,
 } from './garmin/index.js';
 
 // Context skills

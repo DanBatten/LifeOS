@@ -24,6 +24,12 @@ export {
 } from './chat-flow.workflow.js';
 
 export {
+  runPostRunFlow,
+  type PostRunFlowResult,
+  type PostRunFlowOptions,
+} from './post-run-flow.workflow.js';
+
+export {
   routeMessage,
   quickRoute,
   type RouteResult,

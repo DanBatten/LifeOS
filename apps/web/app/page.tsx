@@ -13,16 +13,29 @@ export default function Home() {
           </p>
         </header>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {/* Chat Card */}
           <Link href="/chat" className="block">
             <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg hover:shadow-xl transition-shadow">
               <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                Chat
+                💬 Chat
               </h2>
               <p className="text-gray-600 dark:text-gray-400">
                 Talk to your personal AI assistant. Ask about your schedule,
                 health, tasks, or get recommendations.
+              </p>
+            </div>
+          </Link>
+
+          {/* Post-Run Card */}
+          <Link href="/post-run" className="block">
+            <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl p-6 shadow-lg hover:shadow-xl transition-shadow">
+              <h2 className="text-xl font-semibold text-white mb-2">
+                🏃 Post-Run Analysis
+              </h2>
+              <p className="text-emerald-100">
+                Just finished a run? Sync from Garmin and get your coach&apos;s
+                analysis with personalized feedback.
               </p>
             </div>
           </Link>
