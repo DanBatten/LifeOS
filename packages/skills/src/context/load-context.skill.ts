@@ -163,15 +163,14 @@ export async function loadAgentContext(
       .order('scheduled_date', { ascending: true })
       .limit(3),
     
-    // Recent completed workouts (7 days)
+    // Recent completed workouts (14 days - no limit since date filter handles it)
     supabase
       .from('workouts')
       .select('*')
       .eq('user_id', userId)
       .eq('status', 'completed')
-      .gte('scheduled_date', subtractDays(today, 7))
-      .order('scheduled_date', { ascending: false })
-      .limit(7),
+      .gte('scheduled_date', subtractDays(today, 14))
+      .order('scheduled_date', { ascending: false }),
     
     // Active training plan
     supabase
@@ -234,7 +233,9 @@ export async function loadAgentContext(
 
     todayWorkout: transformWorkout(todayWorkoutResult.data?.[0]),
     upcomingWorkouts: (upcomingWorkoutsResult.data || []).map(transformWorkout).filter((w): w is Workout => w !== null),
-    recentWorkouts: (recentWorkoutsResult.data || []).map(transformWorkout).filter((w): w is Workout => w !== null),
+    recentWorkouts: deduplicateWorkouts(
+      (recentWorkoutsResult.data || []).map(transformWorkout).filter((w): w is Workout => w !== null)
+    ),
 
     trainingPlan: trainingPlan ? {
       id: trainingPlan.id,
@@ -311,6 +312,37 @@ function transformWorkout(data: Record<string, unknown> | null | undefined): Wor
     coachNotes: data.coach_notes as string | null,
     weekNumber: data.week_number as number | null,
   };
+}
+
+/**
+ * Deduplicate workouts: if multiple workouts on same date, prefer training plan workouts
+ * over Garmin-synced ones. This handles the case where both a scheduled workout and
+ * a Garmin sync exist for the same day.
+ */
+function deduplicateWorkouts(workouts: Workout[]): Workout[] {
+  const byDate = new Map<string, Workout>();
+  
+  for (const workout of workouts) {
+    const dateKey = workout.scheduledDate;
+    if (!dateKey) continue;
+    
+    const existing = byDate.get(dateKey);
+    if (!existing) {
+      byDate.set(dateKey, workout);
+    } else {
+      // Prefer workout with weekNumber (training plan workout) over Garmin-only sync
+      // Training plan workouts have weekNumber, Garmin syncs typically don't
+      const existingIsPlan = existing.weekNumber !== null;
+      const currentIsPlan = workout.weekNumber !== null;
+      
+      if (currentIsPlan && !existingIsPlan) {
+        byDate.set(dateKey, workout);
+      }
+      // If both or neither are plan workouts, keep first (already sorted by date desc)
+    }
+  }
+  
+  return Array.from(byDate.values());
 }
 
 function subtractDays(dateStr: string, days: number): string {

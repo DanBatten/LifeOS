@@ -213,10 +213,21 @@ ${upcomingWorkouts.length > 0 ? upcomingWorkouts.map(w =>
   `${w.scheduledDate}: ${w.title} (${w.prescribedDistanceMiles || '?'} mi)`
 ).join('\n') : 'No upcoming workouts loaded'}
 
-## RECENT COMPLETED WORKOUTS (last 5)
-${recentWorkouts.length > 0 ? recentWorkouts.map(w => 
-  `${w.scheduledDate}: ${w.title} - ${w.actualDurationMinutes || '?'}min${w.avgHeartRate ? `, HR ${w.avgHeartRate}` : ''}`
-).join('\n') : 'No recent completed workouts'}
+## RECENT COMPLETED WORKOUTS (last 7 days)
+${recentWorkouts.length > 0 ? recentWorkouts.map(w => {
+  const details = [
+    `**${w.scheduledDate}: ${w.title}**`,
+    `- Type: ${w.workoutType}`,
+    w.prescribedDistanceMiles ? `- Distance: ${w.prescribedDistanceMiles} miles` : null,
+    w.actualDurationMinutes ? `- Duration: ${w.actualDurationMinutes} min` : null,
+    w.avgHeartRate ? `- Avg HR: ${w.avgHeartRate} bpm` : null,
+    w.prescribedPacePerMile ? `- Prescribed Pace: ${w.prescribedPacePerMile}` : null,
+    w.prescribedDescription ? `- Description: ${w.prescribedDescription}` : null,
+    w.splits && w.splits.length > 0 ? `- Splits: ${JSON.stringify(w.splits)}` : null,
+    w.coachNotes ? `- Coach Notes: ${w.coachNotes.slice(0, 300)}${w.coachNotes.length > 300 ? '...' : ''}` : null,
+  ].filter(Boolean).join('\n');
+  return details;
+}).join('\n\n') : 'No recent completed workouts'}
 
 ## TODAY'S RECOVERY STATUS
 ${health ? `
