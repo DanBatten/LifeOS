@@ -1,7 +1,8 @@
 import { BaseAgent } from '../base/BaseAgent.js';
 import type { AgentContext, AgentTool, WhiteboardEntryPayload } from '../base/types.js';
 import type { LLMProvider } from '@lifeos/llm';
-import { createGarminClient, metersToMiles, formatPace } from '@lifeos/garmin';
+// NOTE: Garmin real-time tools disabled - too slow
+// import { createGarminClient, metersToMiles, formatPace } from '@lifeos/garmin';
 
 // Type definitions for context data
 interface WeekData {
@@ -108,9 +109,10 @@ export class TrainingCoachAgent extends BaseAgent {
       this.postWhiteboardTool(),
       this.checkInjuryStatusTool(),
       this.calculateTrainingLoadTool(),
-      // Garmin real-time tools
-      this.getGarminActivityTool(),
-      this.getGarminRecentActivitiesTool(),
+      // NOTE: Garmin real-time tools disabled - too slow (spawns Python process each call)
+      // Use synced database data instead. Re-enable when we have persistent MCP connection.
+      // this.getGarminActivityTool(),
+      // this.getGarminRecentActivitiesTool(),
     ];
   }
 
@@ -741,138 +743,7 @@ Using adapt_plan, determine:
     };
   }
 
-  // ===========================================
-  // Garmin Tools
-  // ===========================================
-
-  private getGarminActivityTool(): AgentTool {
-    return {
-      name: 'get_garmin_activity',
-      description: 'Fetch detailed activity data directly from Garmin Connect for real-time analysis. Use this when you need the most current workout data with full metrics.',
-      parameters: {
-        type: 'object',
-        properties: {
-          activity_id: {
-            type: 'number',
-            description: 'Garmin activity ID to fetch',
-          },
-        },
-        required: ['activity_id'],
-      },
-      execute: async (args: Record<string, unknown>, _context: AgentContext) => {
-        const activityId = args.activity_id as number;
-        const client = createGarminClient();
-
-        try {
-          await client.connect();
-          const activity = await client.getActivity(activityId);
-          client.disconnect();
-
-          const distanceMiles = metersToMiles(activity.distance);
-          const durationMinutes = activity.duration / 60;
-          const avgPace = activity.distance > 0
-            ? formatPace(durationMinutes / distanceMiles)
-            : 'N/A';
-
-          return {
-            activityId: activity.activityId,
-            name: activity.activityName,
-            type: activity.activityType.typeKey,
-            date: activity.startTimeLocal,
-            distance: {
-              meters: activity.distance,
-              miles: distanceMiles,
-            },
-            duration: {
-              seconds: activity.duration,
-              minutes: Math.round(durationMinutes),
-            },
-            pace: avgPace,
-            heartRate: {
-              average: activity.averageHR,
-              max: activity.maxHR,
-            },
-            trainingEffect: {
-              aerobic: activity.aerobicTrainingEffect,
-              anaerobic: activity.anaerobicTrainingEffect,
-            },
-            trainingLoad: activity.activityTrainingLoad,
-            runningDynamics: {
-              cadence: activity.avgRunningCadence,
-              groundContactTime: activity.avgGroundContactTime,
-              verticalOscillation: activity.avgVerticalOscillation,
-              strideLength: activity.avgStrideLength,
-              verticalRatio: activity.avgVerticalRatio,
-              power: activity.avgPower,
-            },
-            elevation: {
-              gain: activity.elevationGain,
-              loss: activity.elevationLoss,
-            },
-            performance: {
-              vo2max: activity.vO2MaxValue,
-              lactateThresholdHR: activity.lactateThresholdHeartRate,
-              lactateThresholdSpeed: activity.lactateThresholdSpeed,
-            },
-            calories: activity.calories,
-            splits: 'splits' in activity ? activity.splits : undefined,
-          };
-        } catch (error) {
-          client.disconnect();
-          return {
-            error: 'Failed to fetch Garmin activity',
-            message: error instanceof Error ? error.message : String(error),
-          };
-        }
-      },
-    };
-  }
-
-  private getGarminRecentActivitiesTool(): AgentTool {
-    return {
-      name: 'get_garmin_recent_activities',
-      description: 'List recent activities from Garmin Connect. Use this to see what workouts were completed recently that may not be in the database yet.',
-      parameters: {
-        type: 'object',
-        properties: {
-          limit: {
-            type: 'number',
-            description: 'Number of activities to fetch (default: 10)',
-          },
-        },
-        required: [],
-      },
-      execute: async (args: Record<string, unknown>, _context: AgentContext) => {
-        const limit = (args.limit as number) || 10;
-        const client = createGarminClient();
-
-        try {
-          await client.connect();
-          const activities = await client.listActivities(limit);
-          client.disconnect();
-
-          return {
-            count: activities.length,
-            activities: activities.map(activity => ({
-              activityId: activity.activityId,
-              name: activity.activityName,
-              type: activity.activityType.typeKey,
-              date: activity.startTimeLocal,
-              distanceMiles: metersToMiles(activity.distance),
-              durationMinutes: Math.round(activity.duration / 60),
-              avgHR: activity.averageHR,
-              trainingLoad: activity.activityTrainingLoad,
-              aerobicEffect: activity.aerobicTrainingEffect,
-            })),
-          };
-        } catch (error) {
-          client.disconnect();
-          return {
-            error: 'Failed to fetch Garmin activities',
-            message: error instanceof Error ? error.message : String(error),
-          };
-        }
-      },
-    };
-  }
+  // NOTE: Garmin real-time tools available in @lifeos/garmin package
+  // Disabled here because spawning Python process per call is too slow
+  // To re-enable: uncomment the tools in registerTools() above
 }

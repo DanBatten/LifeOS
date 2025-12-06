@@ -87,11 +87,12 @@ export class Orchestrator extends EventEmitter {
     }
 
     // Fetch all relevant data in parallel
-    const [events, tasks, healthSnapshot, recentWorkouts, whiteboardEntries] = await Promise.all([
+    const [events, tasks, healthSnapshot, recentWorkouts, upcomingWorkouts, whiteboardEntries] = await Promise.all([
       new EventRepository(this.supabase).findByDate(this.config.userId, new Date(targetDate)),
       new TaskRepository(this.supabase).findOpen(this.config.userId),
       new HealthRepository(this.supabase).findByDate(this.config.userId, new Date(targetDate)),
       new WorkoutRepository(this.supabase).findRecentCompleted(this.config.userId, 7),
+      new WorkoutRepository(this.supabase).findUpcoming(this.config.userId, 3),
       new WhiteboardRepository(this.supabase).getRecentForContext(this.config.userId),
     ]);
 
@@ -104,6 +105,7 @@ export class Orchestrator extends EventEmitter {
       tasks,
       healthSnapshot,
       recentWorkouts,
+      upcomingWorkouts,
       activeInjuries: [], // TODO: Implement injury repository
       constraints: [], // TODO: Implement constraints repository
       whiteboardEntries,
@@ -133,6 +135,8 @@ export class Orchestrator extends EventEmitter {
         healthSnapshot: context.healthSnapshot,
         healthHistory: [], // Will be fetched by agent tools
         recentWorkouts: context.recentWorkouts,
+        upcomingWorkouts: context.upcomingWorkouts,
+        plannedWorkout: context.upcomingWorkouts?.[0], // Today/tomorrow's workout
         activeInjuries: context.activeInjuries,
         todaysEvents: context.events,
         constraints: context.constraints,

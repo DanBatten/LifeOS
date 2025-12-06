@@ -62,6 +62,7 @@ export interface OrchestratorContext {
   tasks: Task[];
   healthSnapshot: unknown;
   recentWorkouts: Workout[];
+  upcomingWorkouts: Workout[];
   activeInjuries: unknown[];
   constraints: unknown[];
   whiteboardEntries: WhiteboardEntry[];
