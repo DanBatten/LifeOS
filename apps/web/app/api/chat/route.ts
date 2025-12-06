@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createLLMClient } from '@lifeos/llm';
-import { runChatFlow } from '@lifeos/workflows';
+import { runChatFlow, type ConversationMessage } from '@lifeos/workflows';
 import { getSupabase, insertRecord } from '@/lib/supabase';
 import { getEnv } from '@/lib/env';
 
@@ -14,11 +14,10 @@ const ChatRequestSchema = z.object({
  * Chat Endpoint
  * 
  * Handles user chat messages using the ChatFlow workflow.
- * This should be FAST (<10s) because:
- * - All data is pre-loaded from database (no Garmin calls)
- * - Agents respond from context (no tool calls for data fetching)
- * 
- * Heavy analysis happens in the morning cron job.
+ * Features:
+ * - Smart LLM-based routing to correct agent
+ * - Conversation context for better routing decisions
+ * - Fast responses (<10s) with pre-loaded data
  */
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
@@ -34,13 +33,35 @@ export async function POST(request: NextRequest) {
     // Get or create session ID
     const currentSessionId = sessionId || crypto.randomUUID();
 
-    // Run the chat workflow
+    // Fetch recent conversation history for context-aware routing
+    let conversationHistory: ConversationMessage[] = [];
+    if (sessionId) {
+      const { data: messages } = await supabase
+        .from('chat_messages')
+        .select('role, content, responding_agent_id')
+        .eq('session_id', sessionId)
+        .order('created_at', { ascending: false })
+        .limit(6); // Last 6 messages for context
+
+      if (messages && messages.length > 0) {
+        conversationHistory = messages
+          .reverse()
+          .map((m: { role: string; content: string; responding_agent_id: string | null }) => ({
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+            agentId: m.responding_agent_id || undefined,
+          }));
+      }
+    }
+
+    // Run the chat workflow with conversation context
     const result = await runChatFlow(
       supabase,
       llmClient,
       env.USER_ID,
       message,
-      env.TIMEZONE
+      env.TIMEZONE,
+      { conversationHistory }
     );
 
     // Save chat messages to database
@@ -74,6 +95,7 @@ export async function POST(request: NextRequest) {
       sessionId: currentSessionId,
       response: result.response,
       agentId: result.agentId,
+      routing: result.routing,
       duration: result.duration,
     });
   } catch (error) {

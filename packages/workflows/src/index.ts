@@ -20,5 +20,14 @@ export {
 export {
   runChatFlow,
   type ChatFlowResult,
+  type ChatFlowOptions,
 } from './chat-flow.workflow.js';
+
+export {
+  routeMessage,
+  quickRoute,
+  type RouteResult,
+  type ConversationMessage,
+  type AgentId,
+} from './router.js';
 

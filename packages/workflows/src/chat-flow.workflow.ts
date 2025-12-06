@@ -4,7 +4,7 @@
  * Handles user chat messages. This should be FAST because:
  * 1. All data is pre-loaded from database (no Garmin calls)
  * 2. Agents respond from context (no tool calls for data)
- * 3. Only optional tool call is writing to whiteboard
+ * 3. Smart LLM-based routing to correct agent
  * 
  * Target: <10 second response time
  */
@@ -14,6 +14,7 @@ import type { LLMProvider } from '@lifeos/llm';
 import { getLogger } from '@lifeos/core';
 import { loadAgentContext } from '@lifeos/skills';
 import type { AgentContext } from '@lifeos/skills';
+import { routeMessage, quickRoute, type RouteResult, type ConversationMessage } from './router.js';
 
 const logger = getLogger();
 
@@ -21,6 +22,11 @@ export interface ChatFlowResult {
   success: boolean;
   response: string;
   agentId: string;
+  routing: {
+    confidence: number;
+    reasoning: string;
+    timeMs: number;
+  };
   tokenUsage: {
     prompt: number;
     completion: number;
@@ -29,64 +35,42 @@ export interface ChatFlowResult {
   duration: number;
 }
 
-/**
- * Route message to the appropriate agent based on content
- */
-function classifyMessage(message: string): 'health-agent' | 'training-coach' {
-  const lowerMessage = message.toLowerCase();
-  
-  // Training/workout keywords
-  const trainingKeywords = [
-    'workout', 'run', 'running', 'training', 'pace', 'mile', 'marathon',
-    'tempo', 'interval', 'long run', 'easy run', 'tomorrow', 'today',
-    'plan', 'schedule', 'week', 'mileage', 'splits', 'race'
-  ];
-  
-  // Health/recovery keywords
-  const healthKeywords = [
-    'sleep', 'recovery', 'hrv', 'heart rate', 'resting', 'fatigue',
-    'tired', 'energy', 'stress', 'body battery', 'rest', 'injury',
-    'sore', 'pain', 'sick', 'illness'
-  ];
-  
-  const trainingScore = trainingKeywords.filter(kw => lowerMessage.includes(kw)).length;
-  const healthScore = healthKeywords.filter(kw => lowerMessage.includes(kw)).length;
-  
-  // Default to training coach for workout-related, health agent for recovery
-  if (trainingScore > healthScore) {
-    return 'training-coach';
-  }
-  if (healthScore > trainingScore) {
-    return 'health-agent';
-  }
-  
-  // Default to training coach for ambiguous
-  return 'training-coach';
+export interface ChatFlowOptions {
+  conversationHistory?: ConversationMessage[];
 }
 
 /**
- * Run the chat flow - fast, context-based responses
+ * Run the chat flow - fast, context-based responses with smart routing
  */
 export async function runChatFlow(
   supabase: SupabaseClient,
   llmClient: LLMProvider,
   userId: string,
   message: string,
-  timezone: string = 'America/Los_Angeles'
+  timezone: string = 'America/Los_Angeles',
+  options: ChatFlowOptions = {}
 ): Promise<ChatFlowResult> {
   const startTime = Date.now();
   
   logger.info(`[Workflow:ChatFlow] Processing message: "${message.slice(0, 50)}..."`);
 
-  // 1. SKILL: Load Context (fast DB reads)
-  const context = await loadAgentContext(supabase, userId, timezone);
+  // 1. Smart routing - try quick route first, then LLM if needed
+  let routeResult: RouteResult;
+  const quickResult = quickRoute(message);
   
-  // 2. Classify message to route to correct agent
-  const agentId = classifyMessage(message);
-  logger.info(`[Workflow:ChatFlow] Routed to: ${agentId}`);
+  if (quickResult) {
+    routeResult = quickResult;
+    logger.info(`[Workflow:ChatFlow] Quick routed to: ${routeResult.agentId} (${routeResult.reasoning})`);
+  } else {
+    routeResult = await routeMessage(llmClient, message, options.conversationHistory);
+    logger.info(`[Workflow:ChatFlow] LLM routed to: ${routeResult.agentId} (confidence: ${routeResult.confidence}, ${routeResult.routingTimeMs}ms)`);
+  }
+
+  // 2. SKILL: Load Context (fast DB reads)
+  const context = await loadAgentContext(supabase, userId, timezone);
 
   // 3. AGENT: Get response (NO TOOLS - pure interpretation)
-  const response = await getAgentResponse(llmClient, agentId, context, message);
+  const response = await getAgentResponse(llmClient, routeResult.agentId, context, message);
 
   const duration = Date.now() - startTime;
   logger.info(`[Workflow:ChatFlow] Completed in ${duration}ms`);
@@ -94,7 +78,12 @@ export async function runChatFlow(
   return {
     success: true,
     response: response.content,
-    agentId,
+    agentId: routeResult.agentId,
+    routing: {
+      confidence: routeResult.confidence,
+      reasoning: routeResult.reasoning,
+      timeMs: routeResult.routingTimeMs,
+    },
     tokenUsage: {
       prompt: response.usage.promptTokens,
       completion: response.usage.completionTokens,

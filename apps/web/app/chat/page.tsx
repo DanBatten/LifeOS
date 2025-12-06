@@ -11,12 +11,21 @@ interface Message {
   timestamp: Date;
 }
 
+const LOADING_MESSAGES = [
+  "Thinking...",
+  "Analyzing your data...",
+  "Finding the right expert...",
+  "Almost there...",
+];
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const loadingTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -41,6 +50,15 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
+    setLoadingMessage(null);
+
+    // Start timer for loading messages (show after 5 seconds)
+    let messageIndex = 0;
+    loadingTimerRef.current = setTimeout(function showNextMessage() {
+      setLoadingMessage(LOADING_MESSAGES[messageIndex]);
+      messageIndex = (messageIndex + 1) % LOADING_MESSAGES.length;
+      loadingTimerRef.current = setTimeout(showNextMessage, 3000);
+    }, 5000);
 
     try {
       const response = await fetch('/api/chat', {
@@ -83,7 +101,13 @@ export default function ChatPage() {
 
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
+      // Clear the loading timer
+      if (loadingTimerRef.current) {
+        clearTimeout(loadingTimerRef.current);
+        loadingTimerRef.current = null;
+      }
       setIsLoading(false);
+      setLoadingMessage(null);
     }
   };
 
@@ -91,10 +115,10 @@ export default function ChatPage() {
     switch (agentId) {
       case 'health-agent':
         return 'Health & Recovery';
+      case 'training-coach':
+        return 'Training Coach';
       case 'workload-agent':
         return 'Workload & Focus';
-      case 'training-agent':
-        return 'Training Coach';
       case 'reflection-agent':
         return 'Reflection';
       default:
@@ -196,16 +220,23 @@ export default function ChatPage() {
           {isLoading && (
             <div className="flex justify-start">
               <div className="bg-white dark:bg-gray-800 rounded-2xl px-4 py-3 border border-gray-200 dark:border-gray-700">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
-                  <div
-                    className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
-                    style={{ animationDelay: '0.1s' }}
-                  />
-                  <div
-                    className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
-                    style={{ animationDelay: '0.2s' }}
-                  />
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1">
+                    <div className="w-2 h-2 bg-primary-500 rounded-full animate-bounce" />
+                    <div
+                      className="w-2 h-2 bg-primary-500 rounded-full animate-bounce"
+                      style={{ animationDelay: '0.1s' }}
+                    />
+                    <div
+                      className="w-2 h-2 bg-primary-500 rounded-full animate-bounce"
+                      style={{ animationDelay: '0.2s' }}
+                    />
+                  </div>
+                  {loadingMessage && (
+                    <span className="text-sm text-gray-500 dark:text-gray-400 animate-pulse">
+                      {loadingMessage}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
