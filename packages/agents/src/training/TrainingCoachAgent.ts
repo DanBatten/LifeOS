@@ -112,6 +112,10 @@ export class TrainingCoachAgent extends BaseAgent {
       this.postWhiteboardTool(),
       this.checkInjuryStatusTool(),
       this.calculateTrainingLoadTool(),
+      // Workout modification tools
+      this.updateWorkoutTool(),
+      this.rescheduleWorkoutsTool(),
+      this.addNutritionGuidanceTool(),
       // NOTE: Garmin real-time tools disabled - too slow (spawns Python process each call)
       // Use synced database data instead. Re-enable when we have persistent MCP connection.
       // this.getGarminActivityTool(),
@@ -160,6 +164,20 @@ export class TrainingCoachAgent extends BaseAgent {
   → Make plan adaptations that need to be saved
 - NEVER call analyze_workout multiple times - analyze once using the data provided
 - If you've already called a tool, DO NOT call it again
+
+## Training Plan Modification Tools
+You CAN modify the athlete's training plan when they request it:
+
+- **update_workout**: Update a single workout (reschedule, add notes, add fueling)
+  → Use when athlete says "move my workout to Friday" or "add notes to my long run"
+  
+- **reschedule_workouts**: Bulk reschedule to match preferred schedule
+  → Use when athlete says "I want to run Tues/Thurs/Fri/Sun" or "change my rest days to Mon/Wed"
+  → Provide days as numbers: 1=Monday, 2=Tuesday, ..., 7=Sunday
+  
+- **add_nutrition_guidance**: Add fueling plans to upcoming workouts
+  → Use when athlete asks about nutrition/fueling for their runs
+  → Can target all workouts, just long runs, or just hard workouts
 
 ## Today's Date: ${context.date}
 ## Timezone: ${context.timezone}`;
@@ -759,4 +777,351 @@ Using adapt_plan, determine:
   // NOTE: Garmin real-time tools available in @lifeos/garmin package
   // Disabled here because spawning Python process per call is too slow
   // To re-enable: uncomment the tools in registerTools() above
+
+  // ===========================================
+  // WORKOUT MODIFICATION TOOLS
+  // ===========================================
+
+  private updateWorkoutTool(): AgentTool {
+    return {
+      name: 'update_workout',
+      description: 'Update a specific workout - reschedule it, add notes, or modify details. Use this when the user wants to change a scheduled workout.',
+      parameters: {
+        type: 'object',
+        properties: {
+          workout_id: { 
+            type: 'string', 
+            description: 'The UUID of the workout to update' 
+          },
+          scheduled_date: { 
+            type: 'string', 
+            description: 'New date for the workout (YYYY-MM-DD format)' 
+          },
+          personal_notes: { 
+            type: 'string', 
+            description: 'Notes to add to the workout' 
+          },
+          fueling_pre: { 
+            type: 'object', 
+            description: 'Pre-workout fueling (e.g., {"meal": "oatmeal", "timing_minutes": 90, "caffeine_mg": 100})' 
+          },
+          fueling_during: { 
+            type: 'object', 
+            description: 'During-workout fueling (e.g., {"gels": ["Maurten 100"], "electrolytes": "LMNT", "water_oz": 20})' 
+          },
+          status: { 
+            type: 'string', 
+            enum: ['planned', 'completed', 'skipped', 'modified'],
+            description: 'New status for the workout' 
+          },
+        },
+        required: ['workout_id'],
+      },
+      execute: async (args: Record<string, unknown>, context: AgentContext) => {
+        const workoutId = args.workout_id as string;
+        
+        // Build update object with only provided fields
+        const updateData: Record<string, unknown> = {
+          updated_at: new Date().toISOString(),
+        };
+        
+        if (args.scheduled_date) updateData.scheduled_date = args.scheduled_date;
+        if (args.personal_notes) updateData.personal_notes = args.personal_notes;
+        if (args.status) updateData.status = args.status;
+        if (args.fueling_pre) updateData.fueling_pre = args.fueling_pre;
+        if (args.fueling_during) updateData.fueling_during = args.fueling_during;
+
+        const { data, error } = await context.supabase
+          .from('workouts')
+          .update(updateData)
+          .eq('id', workoutId)
+          .eq('user_id', context.userId)
+          .select('id, title, scheduled_date, status')
+          .single();
+
+        if (error) {
+          return { success: false, error: error.message };
+        }
+
+        return { 
+          success: true, 
+          message: `Updated workout: ${data.title}`,
+          workout: data,
+        };
+      },
+    };
+  }
+
+  private rescheduleWorkoutsTool(): AgentTool {
+    return {
+      name: 'reschedule_workouts',
+      description: 'Bulk reschedule upcoming workouts to match a preferred weekly schedule. Use this when user wants to shift their training days (e.g., "I want to run Tues/Thurs/Fri/Sun").',
+      parameters: {
+        type: 'object',
+        properties: {
+          preferred_run_days: { 
+            type: 'array', 
+            items: { type: 'integer' },
+            description: 'Days of week to run (1=Monday, 7=Sunday). E.g., [2,4,5,7] for Tues/Thurs/Fri/Sun' 
+          },
+          start_date: { 
+            type: 'string', 
+            description: 'Start date for rescheduling (YYYY-MM-DD). Defaults to tomorrow.' 
+          },
+          weeks_to_reschedule: { 
+            type: 'integer', 
+            description: 'Number of weeks to reschedule. Default is 4.' 
+          },
+        },
+        required: ['preferred_run_days'],
+      },
+      execute: async (args: Record<string, unknown>, context: AgentContext) => {
+        const preferredDays = args.preferred_run_days as number[];
+        const weeksToReschedule = (args.weeks_to_reschedule as number) || 4;
+        
+        const startDate = args.start_date 
+          ? new Date(args.start_date as string)
+          : new Date(context.date);
+        startDate.setDate(startDate.getDate() + 1); // Start from tomorrow
+        
+        const endDate = new Date(startDate);
+        endDate.setDate(endDate.getDate() + (weeksToReschedule * 7));
+
+        // Get upcoming planned workouts
+        const { data: workouts, error: fetchError } = await context.supabase
+          .from('workouts')
+          .select('*')
+          .eq('user_id', context.userId)
+          .eq('status', 'planned')
+          .gte('scheduled_date', startDate.toISOString().split('T')[0])
+          .lte('scheduled_date', endDate.toISOString().split('T')[0])
+          .order('scheduled_date', { ascending: true });
+
+        if (fetchError) {
+          return { success: false, error: fetchError.message };
+        }
+
+        if (!workouts || workouts.length === 0) {
+          return { success: false, error: 'No upcoming workouts found to reschedule' };
+        }
+
+        // Group workouts by week
+        const workoutsByWeek: Map<number, typeof workouts> = new Map();
+        workouts.forEach(w => {
+          const weekNum = w.week_number || Math.floor(
+            (new Date(w.scheduled_date).getTime() - startDate.getTime()) / (7 * 24 * 60 * 60 * 1000)
+          );
+          if (!workoutsByWeek.has(weekNum)) {
+            workoutsByWeek.set(weekNum, []);
+          }
+          workoutsByWeek.get(weekNum)!.push(w);
+        });
+
+        const updates: Array<{ id: string; oldDate: string; newDate: string; title: string }> = [];
+
+        // Reschedule each week's workouts to preferred days
+        for (const [_weekNum, weekWorkouts] of workoutsByWeek) {
+          // Sort workouts by importance: long runs first, then tempo/intervals, then easy
+          const sortedWorkouts = [...weekWorkouts].sort((a, b) => {
+            const getPriority = (w: typeof a) => {
+              const type = (w.workout_type || w.title || '').toLowerCase();
+              if (type.includes('long')) return 1;
+              if (type.includes('tempo') || type.includes('threshold') || type.includes('interval')) return 2;
+              return 3;
+            };
+            return getPriority(a) - getPriority(b);
+          });
+
+          // Assign workouts to preferred days
+          // Long run gets Sunday (day 7), hard workout gets Tuesday (day 2), easy runs get remaining days
+          const dayAssignments = [...preferredDays].sort((a, b) => {
+            // Sunday (7) first for long runs, then earlier days
+            if (a === 7) return -1;
+            if (b === 7) return 1;
+            // Tuesday (2) second for hard workouts
+            if (a === 2) return -1;
+            if (b === 2) return 1;
+            return a - b;
+          });
+
+          // Get the Monday of this workout's week
+          const firstWorkoutDate = new Date(sortedWorkouts[0].scheduled_date);
+          const dayOfWeek = firstWorkoutDate.getDay() || 7; // Convert Sunday=0 to 7
+          const monday = new Date(firstWorkoutDate);
+          monday.setDate(monday.getDate() - (dayOfWeek - 1));
+
+          sortedWorkouts.forEach((workout, idx) => {
+            if (idx < dayAssignments.length) {
+              const targetDay = dayAssignments[idx];
+              const newDate = new Date(monday);
+              newDate.setDate(monday.getDate() + (targetDay - 1));
+              const newDateStr = newDate.toISOString().split('T')[0];
+              
+              if (newDateStr !== workout.scheduled_date) {
+                updates.push({
+                  id: workout.id,
+                  oldDate: workout.scheduled_date,
+                  newDate: newDateStr,
+                  title: workout.title,
+                });
+              }
+            }
+          });
+        }
+
+        // Apply updates
+        for (const update of updates) {
+          await context.supabase
+            .from('workouts')
+            .update({ 
+              scheduled_date: update.newDate,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', update.id);
+        }
+
+        return {
+          success: true,
+          message: `Rescheduled ${updates.length} workouts to your preferred schedule`,
+          changes: updates.map(u => ({
+            title: u.title,
+            from: u.oldDate,
+            to: u.newDate,
+          })),
+          preferred_days: preferredDays.map(d => ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][d]),
+        };
+      },
+    };
+  }
+
+  private addNutritionGuidanceTool(): AgentTool {
+    return {
+      name: 'add_nutrition_guidance',
+      description: 'Add nutrition and fueling guidance to upcoming workouts based on workout type and duration. Use this when user asks about fueling for their runs.',
+      parameters: {
+        type: 'object',
+        properties: {
+          workout_ids: { 
+            type: 'array', 
+            items: { type: 'string' },
+            description: 'List of workout IDs to add guidance to. If empty, adds to all upcoming long runs and hard workouts.' 
+          },
+          guidance_type: { 
+            type: 'string',
+            enum: ['all', 'long_runs', 'hard_workouts', 'easy_runs'],
+            description: 'Type of workouts to add guidance to' 
+          },
+        },
+      },
+      execute: async (args: Record<string, unknown>, context: AgentContext) => {
+        const guidanceType = (args.guidance_type as string) || 'all';
+        const workoutIds = args.workout_ids as string[] | undefined;
+
+        // Get upcoming workouts
+        let query = context.supabase
+          .from('workouts')
+          .select('*')
+          .eq('user_id', context.userId)
+          .eq('status', 'planned')
+          .gte('scheduled_date', context.date)
+          .order('scheduled_date', { ascending: true })
+          .limit(20);
+
+        if (workoutIds && workoutIds.length > 0) {
+          query = query.in('id', workoutIds);
+        }
+
+        const { data: workouts, error } = await query;
+
+        if (error) {
+          return { success: false, error: error.message };
+        }
+
+        const updatedWorkouts: Array<{ title: string; date: string; guidance: string }> = [];
+
+        for (const workout of workouts || []) {
+          const type = (workout.workout_type || workout.title || '').toLowerCase();
+          const distance = workout.prescribed_distance_miles || 0;
+          
+          // Determine workout category
+          const isLongRun = type.includes('long') || distance >= 12;
+          const isHardWorkout = type.includes('tempo') || type.includes('threshold') || 
+                               type.includes('interval') || type.includes('track');
+          const isEasyRun = !isLongRun && !isHardWorkout;
+
+          // Skip based on guidance type filter
+          if (guidanceType === 'long_runs' && !isLongRun) continue;
+          if (guidanceType === 'hard_workouts' && !isHardWorkout) continue;
+          if (guidanceType === 'easy_runs' && !isEasyRun) continue;
+
+          // Generate nutrition guidance based on workout type
+          let fuelingPre: Record<string, unknown> = {};
+          let fuelingDuring: Record<string, unknown> = {};
+          let nutritionNotes = '';
+
+          if (isLongRun) {
+            fuelingPre = {
+              meal: 'Oatmeal with banana and honey, or toast with peanut butter',
+              timing_minutes: 120,
+              caffeine_mg: distance >= 16 ? 100 : 0,
+              hydration_oz: 16,
+            };
+            fuelingDuring = {
+              gels: distance >= 14 ? ['Gel at miles 6, 10, 14'] : ['Gel at mile 6'],
+              electrolytes: 'LMNT or similar every 45 min',
+              water_oz: Math.round(distance * 1.5),
+              carbs_per_hour: 60,
+            };
+            nutritionNotes = `Long run fueling: ${distance >= 16 ? 'Practice race-day nutrition' : 'Focus on hydration and energy maintenance'}. Take gels with water, not electrolytes.`;
+          } else if (isHardWorkout) {
+            fuelingPre = {
+              meal: 'Light meal 2-3 hours before, or small snack 60-90 min before',
+              timing_minutes: 90,
+              caffeine_mg: 50,
+              hydration_oz: 12,
+            };
+            fuelingDuring = {
+              gels: distance >= 8 ? ['Optional gel if needed'] : [],
+              water_oz: 8,
+            };
+            nutritionNotes = 'Hard workout: Light stomach, stay hydrated. Save the big meals for post-workout recovery.';
+          } else {
+            fuelingPre = {
+              meal: 'Whatever feels comfortable - can run fasted for runs under 60 min',
+              hydration_oz: 8,
+            };
+            fuelingDuring = {
+              water_oz: distance >= 6 ? 8 : 0,
+            };
+            nutritionNotes = 'Easy run: No special fueling needed. Listen to your body.';
+          }
+
+          // Update the workout
+          await context.supabase
+            .from('workouts')
+            .update({
+              fueling_pre: fuelingPre,
+              fueling_during: fuelingDuring,
+              personal_notes: workout.personal_notes 
+                ? `${workout.personal_notes}\n\n📍 Nutrition: ${nutritionNotes}`
+                : `📍 Nutrition: ${nutritionNotes}`,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', workout.id);
+
+          updatedWorkouts.push({
+            title: workout.title,
+            date: workout.scheduled_date,
+            guidance: nutritionNotes,
+          });
+        }
+
+        return {
+          success: true,
+          message: `Added nutrition guidance to ${updatedWorkouts.length} workouts`,
+          workouts: updatedWorkouts,
+        };
+      },
+    };
+  }
 }
