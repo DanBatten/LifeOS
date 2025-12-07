@@ -165,19 +165,24 @@ export class TrainingCoachAgent extends BaseAgent {
 - NEVER call analyze_workout multiple times - analyze once using the data provided
 - If you've already called a tool, DO NOT call it again
 
-## Training Plan Modification Tools
-You CAN modify the athlete's training plan when they request it:
+## Training Plan Modification Tools - YOU HAVE THESE CAPABILITIES
+You HAVE the ability to modify the athlete's training plan directly. USE THESE TOOLS when requested:
 
-- **update_workout**: Update a single workout (reschedule, add notes, add fueling)
-  → Use when athlete says "move my workout to Friday" or "add notes to my long run"
+- **reschedule_workouts**: CALL THIS when user wants to change their running days
+  → Example: "I want to run Tues/Thurs/Fri/Sun" → Call reschedule_workouts with preferred_run_days: [2, 4, 5, 7]
+  → Example: "Move my runs to Mon/Wed/Sat" → Call reschedule_workouts with preferred_run_days: [1, 3, 6]
+  → Day numbers: 1=Monday, 2=Tuesday, 3=Wednesday, 4=Thursday, 5=Friday, 6=Saturday, 7=Sunday
   
-- **reschedule_workouts**: Bulk reschedule to match preferred schedule
-  → Use when athlete says "I want to run Tues/Thurs/Fri/Sun" or "change my rest days to Mon/Wed"
-  → Provide days as numbers: 1=Monday, 2=Tuesday, ..., 7=Sunday
+- **update_workout**: CALL THIS to update a single workout
+  → Use when athlete says "move my Thursday run to Friday" or "add notes to my long run"
+  → Requires workout_id from the upcoming workouts data
   
-- **add_nutrition_guidance**: Add fueling plans to upcoming workouts
-  → Use when athlete asks about nutrition/fueling for their runs
-  → Can target all workouts, just long runs, or just hard workouts
+- **add_nutrition_guidance**: CALL THIS when user asks about fueling
+  → Use when athlete asks "add nutrition guidance" or "what should I eat for my long runs?"
+  → Can target: 'all', 'long_runs', 'hard_workouts', or 'easy_runs'
+
+IMPORTANT: When the user asks to change their schedule, DO NOT say you can't do it. 
+You HAVE these tools - USE THEM to make the changes directly.
 
 ## Today's Date: ${context.date}
 ## Timezone: ${context.timezone}`;
@@ -196,6 +201,8 @@ You CAN modify the athlete's training plan when they request it:
         return this.buildWeeklyReviewPrompt(context);
       case 'plan_adaptation':
         return this.buildAdaptationPrompt(context);
+      case 'chat_response':
+        return this.buildChatResponsePrompt(context);
       default:
         return this.buildWorkoutAnalysisPrompt(context);
     }
@@ -383,6 +390,50 @@ Using adapt_plan, determine:
 2. What specific changes to make
 3. Rationale for the decision
 4. How this affects the broader plan`;
+  }
+
+  private buildChatResponsePrompt(context: AgentContext): string {
+    const data = context.data as Record<string, unknown>;
+    const userMessage = (data.userMessage as string) || '';
+    const upcomingWorkouts = (data.upcomingWorkouts as Array<Workout & { id?: string }>) || [];
+    const recentWorkouts = (data.recentWorkouts as Workout[]) || [];
+    const healthData = (data.todayHealth as HealthData) || {};
+
+    return `The athlete sent this message:
+"${userMessage}"
+
+## UPCOMING WORKOUTS (with IDs for modification)
+${upcomingWorkouts.map((w) =>
+  `- [ID: ${w.id || 'unknown'}] ${w.scheduled_date}: ${w.title} (${w.prescribed_distance_miles || '?'} mi)\n  Type: ${w.workout_type || 'run'}`
+).join('\n') || 'No upcoming workouts'}
+
+## RECENT COMPLETED WORKOUTS
+${recentWorkouts.slice(0, 5).map((w) =>
+  `- ${w.scheduled_date}: ${w.title} - ${w.actual_duration_minutes || '?'} min, ${w.avg_heart_rate || '?'} bpm`
+).join('\n') || 'No recent workouts'}
+
+## TODAY'S HEALTH
+- Sleep: ${healthData.sleepHours || '?'} hrs
+- HRV: ${healthData.hrv || '?'}
+- Energy: ${healthData.energyLevel || '?'}/10
+
+---
+
+INSTRUCTIONS:
+1. If they're asking to CHANGE their schedule (e.g., "run on Tues/Thurs/Fri/Sun"):
+   → USE the reschedule_workouts tool with the day numbers they want
+   → Day numbers: 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat, 7=Sun
+
+2. If they want to ADD nutrition guidance:
+   → USE the add_nutrition_guidance tool
+
+3. If they want to MOVE a single workout:
+   → USE the update_workout tool with the workout's ID from the list above
+
+4. For simple questions:
+   → Answer directly from the data provided
+
+REMEMBER: You HAVE these modification tools. USE them when the athlete requests changes.`;
   }
 
   // Tool implementations

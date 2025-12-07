@@ -1,12 +1,13 @@
 /**
  * Workflow: ChatFlow
  * 
- * Handles user chat messages. This should be FAST because:
- * 1. All data is pre-loaded from database (no Garmin calls)
- * 2. Agents respond from context (no tool calls for data)
- * 3. Smart LLM-based routing to correct agent
+ * Handles user chat messages with smart routing and full agent capabilities.
+ * Agents CAN use tools when the user requests actions (schedule changes, etc.)
  * 
- * Target: <10 second response time
+ * Flow:
+ * 1. Quick/LLM routing to correct agent
+ * 2. Load context from database (fast)
+ * 3. Agent processes with full tool access
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -15,6 +16,7 @@ import { getLogger } from '@lifeos/core';
 import { loadAgentContext } from '@lifeos/skills';
 import type { AgentContext } from '@lifeos/skills';
 import { routeMessage, quickRoute, type RouteResult, type ConversationMessage } from './router.js';
+import { HealthAgent, TrainingCoachAgent } from '@lifeos/agents';
 
 const logger = getLogger();
 
@@ -69,8 +71,8 @@ export async function runChatFlow(
   // 2. SKILL: Load Context (fast DB reads)
   const context = await loadAgentContext(supabase, userId, timezone);
 
-  // 3. AGENT: Get response (NO TOOLS - pure interpretation)
-  const response = await getAgentResponse(llmClient, routeResult.agentId, context, message);
+  // 3. AGENT: Get response (with tools for modifications)
+  const response = await getAgentResponse(supabase, llmClient, routeResult.agentId, context, message);
 
   const duration = Date.now() - startTime;
   logger.info(`[Workflow:ChatFlow] Completed in ${duration}ms`);
@@ -94,15 +96,26 @@ export async function runChatFlow(
 }
 
 /**
- * Get agent response - pure interpretation, no tools
+ * Get agent response using actual agent with tools
  */
 async function getAgentResponse(
+  supabase: SupabaseClient,
   llmClient: LLMProvider,
   agentId: string,
   context: AgentContext,
   message: string
 ): Promise<{ content: string; usage: { promptTokens: number; completionTokens: number; totalTokens: number } }> {
   
+  // Check if this seems like a simple query or a modification request
+  const isModificationRequest = detectModificationRequest(message);
+  
+  if (isModificationRequest) {
+    // Use full agent with tools for modification requests
+    logger.info(`[ChatFlow] Detected modification request, using full agent with tools`);
+    return getAgentResponseWithTools(supabase, llmClient, agentId, context, message);
+  }
+  
+  // For simple queries, use fast path (no tools)
   const systemPrompt = agentId === 'health-agent' 
     ? buildHealthAgentPrompt(context)
     : buildTrainingCoachPrompt(context);
@@ -123,6 +136,74 @@ Remember: All data is provided above. Answer directly from the context. Be conci
   return {
     content: response.content,
     usage: response.usage,
+  };
+}
+
+/**
+ * Detect if message is requesting a modification/action
+ */
+function detectModificationRequest(message: string): boolean {
+  const modificationPatterns = [
+    /\b(update|change|modify|move|reschedule|shift|switch)\b/i,
+    /\b(add|set|create|insert)\s+(nutrition|fueling|notes|guidance)/i,
+    /\bwant\s+to\s+run\b.*\b(mon|tue|wed|thu|fri|sat|sun)/i,
+    /\b(my|the)\s+schedule\b/i,
+    /\brest\s+days?\b/i,
+    /\bmove\s+(my|the|this)\b/i,
+  ];
+  
+  return modificationPatterns.some(pattern => pattern.test(message));
+}
+
+/**
+ * Get agent response with full tool capabilities
+ */
+async function getAgentResponseWithTools(
+  supabase: SupabaseClient,
+  llmClient: LLMProvider,
+  agentId: string,
+  context: AgentContext,
+  message: string
+): Promise<{ content: string; usage: { promptTokens: number; completionTokens: number; totalTokens: number } }> {
+  
+  // Create the actual agent
+  const agent = agentId === 'health-agent'
+    ? new HealthAgent(llmClient)
+    : new TrainingCoachAgent(llmClient);
+  
+  // Build agent context with supabase for tool execution
+  const agentContext = {
+    userId: context.userId,
+    userName: context.userName,
+    date: context.date,
+    timezone: context.timezone,
+    supabase,
+    data: {
+      taskType: 'chat_response',
+      userMessage: message,
+      todayHealth: context.todayHealth,
+      recentHealth: context.recentHealth,
+      todayWorkout: context.todayWorkout,
+      upcomingWorkouts: context.upcomingWorkouts,
+      recentWorkouts: context.recentWorkouts,
+      whiteboardEntries: context.whiteboardEntries,
+      activeInjuries: context.activeInjuries,
+      trainingPlan: context.trainingPlan,
+      currentWeek: context.currentWeek,
+      currentPhase: context.currentPhase,
+    },
+  };
+
+  // Execute with full tool access
+  const result = await agent.execute(agentContext);
+  
+  return {
+    content: result.content,
+    usage: {
+      promptTokens: result.tokenUsage.promptTokens,
+      completionTokens: result.tokenUsage.completionTokens,
+      totalTokens: result.tokenUsage.totalTokens,
+    },
   };
 }
 
