@@ -79,11 +79,32 @@ export async function syncLatestActivity(
   try {
     await client.connect();
 
-    // 1. Fetch latest activities from Garmin for the target date
-    const activities = await client.getActivitiesForDate(targetDate);
+    // 1. Fetch recent activities from Garmin and filter by target date
+    // Using listActivities because getActivitiesForDate can be unreliable
+    const allActivities = await client.listActivities(20);
     
-    if (!activities || activities.length === 0) {
-      logger.info(`[Skill:SyncLatestActivity] No activities found for ${targetDate}`);
+    if (!allActivities || allActivities.length === 0) {
+      logger.info(`[Skill:SyncLatestActivity] No activities found in Garmin`);
+      return {
+        success: true,
+        workout: null,
+        action: 'no_activity',
+      };
+    }
+
+    // Filter to activities on the target date
+    const activities = allActivities.filter(a => {
+      const activityDate = a.startTimeLocal?.split('T')[0];
+      return activityDate === targetDate;
+    });
+
+    logger.info(`[Skill:SyncLatestActivity] Found ${activities.length} activities for ${targetDate} (of ${allActivities.length} total)`);
+
+    if (activities.length === 0) {
+      // Show what dates we do have activities for
+      const availableDates = [...new Set(allActivities.map(a => a.startTimeLocal?.split('T')[0]))];
+      logger.info(`[Skill:SyncLatestActivity] Available dates: ${availableDates.join(', ')}`);
+      
       return {
         success: true,
         workout: null,
@@ -114,12 +135,12 @@ export async function syncLatestActivity(
     const garminActivityId = runningActivity.activityId?.toString();
 
     // 2. Check if this activity is already synced
-    if (!options.forceResync) {
+    if (!options.forceResync && garminActivityId) {
       const { data: existing } = await supabase
         .from('workouts')
         .select('id')
         .eq('user_id', userId)
-        .eq('garmin_activity_id', garminActivityId)
+        .eq('external_id', garminActivityId)
         .single();
 
       if (existing) {
@@ -149,8 +170,8 @@ export async function syncLatestActivity(
       .eq('status', 'planned')
       .order('created_at', { ascending: true });
 
-    // Find best match (prefer workouts without garmin_activity_id)
-    const plannedWorkout = plannedWorkouts?.find(w => !w.garmin_activity_id) || plannedWorkouts?.[0];
+    // Find best match (prefer workouts without external_id i.e. not yet synced from Garmin)
+    const plannedWorkout = plannedWorkouts?.find(w => !w.external_id) || plannedWorkouts?.[0];
 
     // 4. Parse Garmin activity data
     const durationMinutes = runningActivity.duration 
@@ -160,27 +181,38 @@ export async function syncLatestActivity(
       ? Math.round(runningActivity.distance / 1609.34 * 100) / 100 
       : null;
 
+    // Calculate actual pace
+    const actualPace = distanceMiles && durationMinutes && distanceMiles > 0
+      ? (() => {
+          const paceSeconds = (durationMinutes * 60) / distanceMiles;
+          return `${Math.floor(paceSeconds / 60)}:${String(Math.round(paceSeconds % 60)).padStart(2, '0')}/mi`;
+        })()
+      : null;
+
     const workoutData = {
       user_id: userId,
       scheduled_date: targetDate,
       status: 'completed',
-      completed_date: targetDate,
-      garmin_activity_id: garminActivityId,
+      completed_at: new Date().toISOString(),
       
-      // Actual data from Garmin
+      // Core columns from base migration (001_initial_schema.sql)
       actual_duration_minutes: durationMinutes,
-      actual_distance_miles: distanceMiles,
       avg_heart_rate: runningActivity.averageHR,
       max_heart_rate: runningActivity.maxHR,
-      calories: runningActivity.calories,
-      elevation_gain_ft: runningActivity.elevationGain 
-        ? Math.round(runningActivity.elevationGain * 3.28084) 
-        : null,
-      cadence_avg: runningActivity.avgRunningCadence,
+      calories_burned: runningActivity.calories,
+      external_id: garminActivityId, // Use external_id for Garmin activity ID
+      source: 'garmin',
       
-      // Store raw Garmin data in metadata
+      // Store all Garmin data in metadata (always exists)
       metadata: {
         garmin: runningActivity,
+        garmin_activity_id: garminActivityId,
+        actual_distance_miles: distanceMiles,
+        actual_pace: actualPace,
+        elevation_gain_ft: runningActivity.elevationGain 
+          ? Math.round(runningActivity.elevationGain * 3.28084) 
+          : null,
+        cadence_avg: runningActivity.avgRunningCadence,
         syncedAt: new Date().toISOString(),
       },
     };
@@ -252,14 +284,21 @@ export async function syncLatestActivity(
 
 function transformWorkout(data: Record<string, unknown>): SyncedWorkout {
   const durationMin = data.actual_duration_minutes as number | null;
-  const distanceMi = data.actual_distance_miles as number | null;
+  const metadata = (data.metadata || {}) as Record<string, unknown>;
   
-  // Calculate actual pace if we have distance and duration
-  let actualPace: string | null = null;
-  if (durationMin && distanceMi && distanceMi > 0) {
-    const paceSeconds = (durationMin * 60) / distanceMi;
-    actualPace = `${Math.floor(paceSeconds / 60)}:${String(Math.round(paceSeconds % 60)).padStart(2, '0')}/mi`;
-  }
+  // Get distance and pace from metadata (or columns if they exist)
+  const distanceMi = (data.actual_distance_miles as number | null) 
+    || (metadata.actual_distance_miles as number | null);
+  const actualPace = (metadata.actual_pace as string | null)
+    || (durationMin && distanceMi && distanceMi > 0
+        ? (() => {
+            const paceSeconds = (durationMin * 60) / distanceMi;
+            return `${Math.floor(paceSeconds / 60)}:${String(Math.round(paceSeconds % 60)).padStart(2, '0')}/mi`;
+          })()
+        : null);
+  
+  const garminActivityId = (data.external_id as string | null) 
+    || (metadata.garmin_activity_id as string | null);
 
   return {
     id: data.id as string,
@@ -278,8 +317,8 @@ function transformWorkout(data: Record<string, unknown>): SyncedWorkout {
     avgHeartRate: data.avg_heart_rate as number | null,
     maxHeartRate: data.max_heart_rate as number | null,
     calories: data.calories as number | null,
-    elevationGainFt: data.elevation_gain_ft as number | null,
-    cadenceAvg: data.cadence_avg as number | null,
+    elevationGainFt: (data.elevation_gain_ft as number | null) || (metadata.elevation_gain_ft as number | null),
+    cadenceAvg: (data.cadence_avg as number | null) || (metadata.cadence_avg as number | null),
     splits: (data.splits as unknown[]) || [],
     
     coachNotes: data.coach_notes as string | null,
@@ -287,7 +326,7 @@ function transformWorkout(data: Record<string, unknown>): SyncedWorkout {
     perceivedExertion: data.perceived_exertion as number | null,
     
     matchedToPlannedWorkout: !!(data.plan_id || data.week_number),
-    garminActivityId: data.garmin_activity_id as string | null,
+    garminActivityId,
   };
 }
 
