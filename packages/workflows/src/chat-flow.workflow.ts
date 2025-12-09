@@ -46,7 +46,7 @@ export interface ChatFlowResult {
 
 export interface ChatFlowOptions {
   conversationHistory?: ConversationMessage[];
-  /** Use SDK-based agents for enhanced capabilities (default: false) */
+  /** Use SDK-based agents for enhanced capabilities (default: true) */
   useSdk?: boolean;
   /** Session ID to resume (SDK mode only) */
   resumeSession?: string;
@@ -83,8 +83,8 @@ export async function runChatFlow(
   const context = await loadAgentContext(supabase, userId, timezone);
 
   // 3. AGENT: Get response (with tools for modifications)
-  // Use SDK agent if requested
-  const useSdkAgent = options.useSdk;
+  // Use SDK agent by default (opt-out with useSdk: false)
+  const useSdkAgent = options.useSdk !== false;
 
   let response: {
     content: string;
