@@ -16,7 +16,8 @@ import { getLogger } from '@lifeos/core';
 import { loadAgentContext } from '@lifeos/skills';
 import type { AgentContext } from '@lifeos/skills';
 import { routeMessage, quickRoute, type RouteResult, type ConversationMessage } from './router.js';
-import { HealthAgent, TrainingCoachAgent } from '@lifeos/agents';
+import { HealthAgent, TrainingCoachAgent, SdkTrainingCoachAgent } from '@lifeos/agents';
+import type { SdkAgentOutput } from '@lifeos/agents';
 
 const logger = getLogger();
 
@@ -35,10 +36,20 @@ export interface ChatFlowResult {
     total: number;
   };
   duration: number;
+  /** SDK-specific: cost in USD (only when useSdk=true) */
+  costUsd?: number;
+  /** SDK-specific: session ID for resumption (only when useSdk=true) */
+  sessionId?: string;
+  /** SDK-specific: number of conversation turns (only when useSdk=true) */
+  numTurns?: number;
 }
 
 export interface ChatFlowOptions {
   conversationHistory?: ConversationMessage[];
+  /** Use SDK-based agents for enhanced capabilities (default: false) */
+  useSdk?: boolean;
+  /** Session ID to resume (SDK mode only) */
+  resumeSession?: string;
 }
 
 /**
@@ -72,10 +83,26 @@ export async function runChatFlow(
   const context = await loadAgentContext(supabase, userId, timezone);
 
   // 3. AGENT: Get response (with tools for modifications)
-  const response = await getAgentResponse(supabase, llmClient, routeResult.agentId, context, message);
+  // Use SDK agent if requested and agent is training-coach
+  const useSdkAgent = options.useSdk && routeResult.agentId === 'training-coach';
+
+  let response: {
+    content: string;
+    usage: { promptTokens: number; completionTokens: number; totalTokens: number };
+    costUsd?: number;
+    sessionId?: string;
+    numTurns?: number;
+  };
+
+  if (useSdkAgent) {
+    logger.info(`[Workflow:ChatFlow] Using SDK agent for training-coach`);
+    response = await getSdkAgentResponse(supabase, context, message, options.resumeSession);
+  } else {
+    response = await getAgentResponse(supabase, llmClient, routeResult.agentId, context, message);
+  }
 
   const duration = Date.now() - startTime;
-  logger.info(`[Workflow:ChatFlow] Completed in ${duration}ms`);
+  logger.info(`[Workflow:ChatFlow] Completed in ${duration}ms${response.costUsd ? ` (cost: $${response.costUsd.toFixed(4)})` : ''}`);
 
   return {
     success: true,
@@ -92,6 +119,9 @@ export async function runChatFlow(
       total: response.usage.totalTokens,
     },
     duration,
+    costUsd: response.costUsd,
+    sessionId: response.sessionId,
+    numTurns: response.numTurns,
   };
 }
 
@@ -319,3 +349,62 @@ ${context.whiteboardEntries.filter(e => e.agentId === 'training-coach').slice(0,
 - If asked about today's run, reference the workout details above`;
 }
 
+/**
+ * Get response using SDK-based agent (enhanced capabilities)
+ */
+async function getSdkAgentResponse(
+  supabase: SupabaseClient,
+  context: AgentContext,
+  message: string,
+  resumeSession?: string
+): Promise<{
+  content: string;
+  usage: { promptTokens: number; completionTokens: number; totalTokens: number };
+  costUsd?: number;
+  sessionId?: string;
+  numTurns?: number;
+}> {
+  // Create the SDK-based agent
+  const agent = new SdkTrainingCoachAgent();
+
+  // Build agent context with supabase for tool execution
+  const agentContext = {
+    userId: context.userId,
+    userName: context.userName,
+    date: context.date,
+    timezone: context.timezone,
+    supabase,
+    data: {
+      taskType: 'chat_response',
+      userMessage: message,
+      todayHealth: context.todayHealth,
+      recentHealth: context.recentHealth,
+      todayWorkout: context.todayWorkout,
+      upcomingWorkouts: context.upcomingWorkouts,
+      recentWorkouts: context.recentWorkouts,
+      whiteboardEntries: context.whiteboardEntries,
+      activeInjuries: context.activeInjuries,
+      trainingPlan: context.trainingPlan,
+      currentWeek: context.currentWeek,
+      currentPhase: context.currentPhase,
+    },
+  };
+
+  // Execute with SDK agent
+  const result: SdkAgentOutput = await agent.execute(agentContext, {
+    resumeSession,
+    permissionMode: 'bypassPermissions',
+  });
+
+  return {
+    content: result.content,
+    usage: {
+      promptTokens: result.tokenUsage.promptTokens,
+      completionTokens: result.tokenUsage.completionTokens,
+      totalTokens: result.tokenUsage.totalTokens,
+    },
+    costUsd: result.totalCostUsd,
+    sessionId: result.sessionId,
+    numTurns: result.numTurns,
+  };
+}
