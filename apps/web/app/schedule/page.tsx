@@ -20,6 +20,18 @@ function addDays(date: Date, days: number): Date {
   return d;
 }
 
+interface TrainingWeekSummary {
+  weekNumber: number;
+  startDate: string;
+  endDate: string;
+  status: string;
+  weekSummary: string | null;
+  plannedVolumeMiles: number | null;
+  actualVolumeMiles: number | null;
+  plannedWorkouts: number | null;
+  actualWorkoutsCompleted: number | null;
+}
+
 export default async function SchedulePage() {
   const supabase = getSupabase();
   const env = getEnv();
@@ -34,6 +46,27 @@ export default async function SchedulePage() {
 
   const workouts = await workoutRepo.findByDateRange(userId, startDate, endDate);
 
+  // Fetch training weeks with summaries
+  const { data: trainingWeeksData } = await supabase
+    .from('training_weeks')
+    .select('week_number, start_date, end_date, status, week_summary, planned_volume_miles, actual_volume_miles, planned_workouts, actual_workouts_completed')
+    .gte('end_date', startDate.toISOString().split('T')[0])
+    .lte('start_date', endDate.toISOString().split('T')[0])
+    .order('week_number', { ascending: true });
+
+  // Cast the data to the expected shape
+  const trainingWeeks = (trainingWeeksData || []) as Array<{
+    week_number: number;
+    start_date: string;
+    end_date: string;
+    status: string;
+    week_summary: string | null;
+    planned_volume_miles: number | null;
+    actual_volume_miles: number | null;
+    planned_workouts: number | null;
+    actual_workouts_completed: number | null;
+  }>;
+
   // Serialize dates for client component
   const serializedWorkouts = workouts.map(w => ({
     ...w,
@@ -44,5 +77,18 @@ export default async function SchedulePage() {
     updatedAt: typeof w.updatedAt === 'string' ? w.updatedAt : w.updatedAt.toISOString(),
   }));
 
-  return <ScheduleView workouts={serializedWorkouts} />;
+  // Serialize training weeks
+  const serializedWeeks: TrainingWeekSummary[] = (trainingWeeks || []).map(tw => ({
+    weekNumber: tw.week_number,
+    startDate: tw.start_date,
+    endDate: tw.end_date,
+    status: tw.status,
+    weekSummary: tw.week_summary,
+    plannedVolumeMiles: tw.planned_volume_miles,
+    actualVolumeMiles: tw.actual_volume_miles,
+    plannedWorkouts: tw.planned_workouts,
+    actualWorkoutsCompleted: tw.actual_workouts_completed,
+  }));
+
+  return <ScheduleView workouts={serializedWorkouts} trainingWeeks={serializedWeeks} />;
 }

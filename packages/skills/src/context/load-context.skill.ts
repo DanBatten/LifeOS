@@ -28,11 +28,14 @@ export interface AgentContext {
   todayWorkout: Workout | null; // Planned for today
   upcomingWorkouts: Workout[]; // Next 3 planned
   recentWorkouts: Workout[]; // Last 7 completed
-  
+
   // Training plan context
   trainingPlan: TrainingPlan | null;
   currentWeek: number | null;
   currentPhase: string | null;
+
+  // Weekly summaries - coaching memory
+  recentWeeklySummaries: WeeklySummary[]; // Last 4 weeks
 
   // Whiteboard - recent agent notes
   whiteboardEntries: WhiteboardEntry[];
@@ -101,6 +104,16 @@ interface Injury {
   notes: string | null;
 }
 
+interface WeeklySummary {
+  weekNumber: number;
+  startDate: string;
+  endDate: string;
+  status: string;
+  summary: string;
+  actualVolumeMiles: number | null;
+  actualWorkoutsCompleted: number | null;
+}
+
 /**
  * Load comprehensive context for agent interpretation
  */
@@ -121,12 +134,13 @@ export async function loadAgentContext(
     upcomingWorkoutsResult,
     recentWorkoutsResult,
     trainingPlanResult,
+    weeklySummariesResult,
     whiteboardResult,
     injuriesResult,
   ] = await Promise.all([
     // User
     supabase.from('users').select('*').eq('id', userId).single(),
-    
+
     // Today's health
     supabase
       .from('health_snapshots')
@@ -134,7 +148,7 @@ export async function loadAgentContext(
       .eq('user_id', userId)
       .eq('snapshot_date', today)
       .single(),
-    
+
     // Recent health (7 days)
     supabase
       .from('health_snapshots')
@@ -143,7 +157,7 @@ export async function loadAgentContext(
       .gte('snapshot_date', subtractDays(today, 7))
       .order('snapshot_date', { ascending: false })
       .limit(7),
-    
+
     // Today's planned workout
     supabase
       .from('workouts')
@@ -152,7 +166,7 @@ export async function loadAgentContext(
       .eq('scheduled_date', today)
       .eq('status', 'planned')
       .limit(1),
-    
+
     // Upcoming workouts (next 3)
     supabase
       .from('workouts')
@@ -162,7 +176,7 @@ export async function loadAgentContext(
       .gt('scheduled_date', today)
       .order('scheduled_date', { ascending: true })
       .limit(3),
-    
+
     // Recent completed workouts (14 days - no limit since date filter handles it)
     supabase
       .from('workouts')
@@ -171,7 +185,7 @@ export async function loadAgentContext(
       .eq('status', 'completed')
       .gte('scheduled_date', subtractDays(today, 14))
       .order('scheduled_date', { ascending: false }),
-    
+
     // Active training plan
     supabase
       .from('training_plans')
@@ -179,7 +193,17 @@ export async function loadAgentContext(
       .eq('user_id', userId)
       .eq('status', 'active')
       .single(),
-    
+
+    // Recent weekly summaries (last 4 completed weeks with summaries)
+    supabase
+      .from('training_weeks')
+      .select('week_number, start_date, end_date, status, week_summary, actual_volume_miles, actual_workouts_completed')
+      .eq('user_id', userId)
+      .eq('status', 'completed')
+      .not('week_summary', 'is', null)
+      .order('week_number', { ascending: false })
+      .limit(4),
+
     // Recent whiteboard entries (last 24 hours)
     supabase
       .from('whiteboard_entries')
@@ -188,7 +212,7 @@ export async function loadAgentContext(
       .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
       .order('created_at', { ascending: false })
       .limit(10),
-    
+
     // Active injuries
     supabase
       .from('injuries')
@@ -250,6 +274,19 @@ export async function loadAgentContext(
     } : null,
     currentWeek,
     currentPhase,
+
+    // Weekly summaries for coaching memory - reverse to show oldest first
+    recentWeeklySummaries: (weeklySummariesResult.data || [])
+      .reverse()
+      .map((ws: Record<string, unknown>) => ({
+        weekNumber: ws.week_number as number,
+        startDate: ws.start_date as string,
+        endDate: ws.end_date as string,
+        status: ws.status as string,
+        summary: ws.week_summary as string,
+        actualVolumeMiles: ws.actual_volume_miles as number | null,
+        actualWorkoutsCompleted: ws.actual_workouts_completed as number | null,
+      })),
 
     whiteboardEntries: (whiteboardResult.data || []).map((e: Record<string, unknown>) => ({
       id: e.id as string,

@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import type { ChatContextConfig } from '@/lib/chat-context';
 
 interface Message {
   id: string;
@@ -14,7 +16,12 @@ interface ChatModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialMessage?: string;
-  context?: 'default' | 'post-run';
+  /** API context type for backend routing */
+  context?: 'default' | 'post-run' | 'health' | 'planning';
+  /** Full context config for UI customization */
+  contextConfig?: ChatContextConfig;
+  /** Callback when data has been updated (e.g., workout synced) */
+  onDataUpdated?: () => void;
 }
 
 const LOADING_MESSAGES = [
@@ -38,7 +45,25 @@ const getAgentLabel = (agentId?: string) => {
   }
 };
 
-export function ChatModal({ isOpen, onClose, initialMessage, context = 'default' }: ChatModalProps) {
+export function ChatModal({ isOpen, onClose, initialMessage, context = 'default', contextConfig, onDataUpdated }: ChatModalProps) {
+  // Derive UI text from context config, with fallbacks
+  const emptyStateTitle = contextConfig?.emptyStateTitle || (context === 'post-run' ? 'How was your run?' : 'How can I help?');
+  const emptyStateSubtitle = contextConfig?.emptyStateSubtitle || (context === 'post-run'
+    ? "Tell me about your run and I'll sync your Garmin data, analyze your performance, and update your training notes."
+    : 'Ask about your health metrics, training plan, recovery status, or get personalized recommendations.');
+  const headerTitle = contextConfig?.type === 'post-run' ? 'Post-Run Check-in'
+    : contextConfig?.type === 'health' ? 'Health Advisor'
+    : contextConfig?.type === 'planning' ? 'Planning Assistant'
+    : 'LifeOS Chat';
+
+  // Suggestions based on context type
+  const suggestions = context === 'post-run' || contextConfig?.type === 'post-run'
+    ? ["Just finished my run!", "Felt great today", "Struggled with today's workout"]
+    : context === 'health' || contextConfig?.type === 'health'
+    ? ["How's my recovery today?", "Analyze my sleep this week", "Am I overtrained?"]
+    : context === 'planning' || contextConfig?.type === 'planning'
+    ? ["What should I focus on today?", "Help me plan my week", "What tasks are priority?"]
+    : ["How's my recovery today?", "Should I run today?", "What's my training load?"];
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -120,6 +145,11 @@ export function ChatModal({ isOpen, onClose, initialMessage, context = 'default'
         };
 
         setMessages((prev) => [...prev, assistantMessage]);
+
+        // For post-run context, notify parent that data was updated (workout synced)
+        if (context === 'post-run' && onDataUpdated) {
+          onDataUpdated();
+        }
       } else {
         throw new Error(data.error || 'Failed to send message');
       }
@@ -167,7 +197,7 @@ export function ChatModal({ isOpen, onClose, initialMessage, context = 'default'
           </div>
           <div>
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-              {context === 'post-run' ? 'Post-Run Check-in' : 'LifeOS Chat'}
+              {headerTitle}
             </h2>
             {sessionId && (
               <span className="text-xs text-gray-500">Session {sessionId.slice(0, 8)}</span>
@@ -192,34 +222,25 @@ export function ChatModal({ isOpen, onClose, initialMessage, context = 'default'
             <div className="text-center py-16">
               <div className="w-16 h-16 rounded-full bg-[#D4E157] mx-auto mb-6 flex items-center justify-center">
                 <svg className="w-8 h-8 text-gray-900" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  {context === 'post-run' ? (
+                  {contextConfig?.type === 'post-run' || contextConfig?.type === 'training' ? (
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  ) : contextConfig?.type === 'health' ? (
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                  ) : contextConfig?.type === 'planning' ? (
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                   ) : (
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                   )}
                 </svg>
               </div>
               <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                {context === 'post-run' ? 'How was your run?' : 'How can I help?'}
+                {emptyStateTitle}
               </h3>
               <p className="text-gray-500 mb-8 max-w-md mx-auto">
-                {context === 'post-run'
-                  ? "Tell me about your run and I'll sync your Garmin data, analyze your performance, and update your training notes."
-                  : 'Ask about your health metrics, training plan, recovery status, or get personalized recommendations.'}
+                {emptyStateSubtitle}
               </p>
               <div className="flex flex-wrap justify-center gap-2">
-                {(context === 'post-run'
-                  ? [
-                      "Just finished my run!",
-                      "Felt great today",
-                      "Struggled with today's workout",
-                    ]
-                  : [
-                      "How's my recovery today?",
-                      "Should I run today?",
-                      "What's my training load?",
-                    ]
-                ).map((suggestion) => (
+                {suggestions.map((suggestion) => (
                   <button
                     key={suggestion}
                     onClick={() => sendMessage(suggestion)}
@@ -256,7 +277,13 @@ export function ChatModal({ isOpen, onClose, initialMessage, context = 'default'
                     </span>
                   </div>
                 )}
-                <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
+                {message.role === 'assistant' ? (
+                  <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-2 prose-headings:mt-3 prose-headings:mb-1 prose-li:my-0.5">
+                    <ReactMarkdown>{message.content}</ReactMarkdown>
+                  </div>
+                ) : (
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
+                )}
                 <div className={`text-xs mt-2 ${message.role === 'user' ? 'text-gray-400' : 'text-gray-500'}`}>
                   {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </div>

@@ -37,3 +37,8 @@ export {
   type AgentId,
 } from './router.js';
 
+export {
+  runWeeklySummaryWorkflow,
+  type WeeklySummaryResult,
+} from './weekly-summary.workflow.js';
+

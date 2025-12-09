@@ -81,6 +81,22 @@ export interface GarminLap {
   elevationLoss?: number;
 }
 
+/**
+ * Normalized lap data for analysis (converted to imperial units)
+ */
+export interface GarminLapData {
+  lapNumber: number;
+  distanceMiles: number;
+  durationSeconds: number;
+  pacePerMile: string | null;
+  avgHeartRate?: number;
+  maxHeartRate?: number;
+  avgCadence?: number;
+  elevationGainFt?: number;
+  elevationLossFt?: number;
+  calories?: number;
+}
+
 export interface GarminSample {
   timestamp: string;
   heartRate?: number;

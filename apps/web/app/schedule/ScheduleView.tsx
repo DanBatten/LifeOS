@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 
 interface SerializedWorkout {
   id: string;
@@ -16,8 +17,21 @@ interface SerializedWorkout {
   avgHeartRate?: number | null;
 }
 
+interface TrainingWeekSummary {
+  weekNumber: number;
+  startDate: string;
+  endDate: string;
+  status: string;
+  weekSummary: string | null;
+  plannedVolumeMiles: number | null;
+  actualVolumeMiles: number | null;
+  plannedWorkouts: number | null;
+  actualWorkoutsCompleted: number | null;
+}
+
 interface ScheduleViewProps {
   workouts: SerializedWorkout[];
+  trainingWeeks?: TrainingWeekSummary[];
 }
 
 // Get start of current week (Monday)
@@ -101,15 +115,17 @@ interface WorkoutCardProps {
 function WorkoutCard({ workout, isCurrentDay }: WorkoutCardProps) {
   const colors = statusColors[workout.status] || statusColors.planned;
   const isNext = workout.status === 'planned' && isCurrentDay;
+  const isClickable = workout.status === 'completed';
 
-  return (
-    <div
-      className={`
-        p-4 rounded-2xl border transition-all
-        ${isNext ? 'bg-[#D4E157] border-[#c4d147]' : `${colors.bg} ${colors.border}`}
-        ${workout.status === 'completed' ? 'opacity-75' : ''}
-      `}
-    >
+  const cardClassName = `
+    block p-4 rounded-2xl border transition-all
+    ${isNext ? 'bg-[#D4E157] border-[#c4d147]' : `${colors.bg} ${colors.border}`}
+    ${workout.status === 'completed' ? 'hover:opacity-100 cursor-pointer' : ''}
+    ${isClickable ? 'hover:shadow-md' : ''}
+  `;
+
+  const cardContent = (
+    <>
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <h4 className={`font-semibold truncate ${isNext ? 'text-gray-900' : colors.text}`}>
@@ -166,13 +182,82 @@ function WorkoutCard({ workout, isCurrentDay }: WorkoutCardProps) {
           )}
         </div>
       )}
+    </>
+  );
+
+  if (isClickable) {
+    return (
+      <Link href={`/workout/${workout.id}`} className={cardClassName}>
+        {cardContent}
+      </Link>
+    );
+  }
+
+  return (
+    <div className={cardClassName}>
+      {cardContent}
     </div>
   );
 }
 
-export function ScheduleView({ workouts }: ScheduleViewProps) {
+// Weekly Summary Card Component
+function WeeklySummaryCard({ summary }: { summary: TrainingWeekSummary }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  if (!summary.weekSummary) return null;
+
+  // Get first paragraph as preview
+  const paragraphs = summary.weekSummary.split('\n\n');
+  const preview = paragraphs[0];
+  const hasMore = summary.weekSummary.length > preview.length + 10;
+
+  return (
+    <div className="mt-4 bg-gradient-to-br from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 rounded-2xl p-5 border border-purple-200 dark:border-purple-800">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-full bg-purple-500 flex items-center justify-center">
+            <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <div>
+            <h3 className="font-semibold text-purple-900 dark:text-purple-100">
+              Week {summary.weekNumber} Summary
+            </h3>
+            <p className="text-xs text-purple-600 dark:text-purple-400">
+              {summary.actualVolumeMiles?.toFixed(1) || '—'} mi completed
+              {summary.actualWorkoutsCompleted && ` · ${summary.actualWorkoutsCompleted} workouts`}
+            </p>
+          </div>
+        </div>
+        {hasMore && (
+          <button
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="text-xs text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-200 font-medium"
+          >
+            {isExpanded ? 'Show less' : 'Show more'}
+          </button>
+        )}
+      </div>
+
+      <div className={`prose prose-sm dark:prose-invert max-w-none prose-p:text-purple-900 dark:prose-p:text-purple-100 prose-p:my-2 prose-strong:text-purple-800 dark:prose-strong:text-purple-200 ${!isExpanded ? 'line-clamp-4' : ''}`}>
+        <ReactMarkdown>
+          {isExpanded ? summary.weekSummary : preview}
+        </ReactMarkdown>
+      </div>
+    </div>
+  );
+}
+
+export function ScheduleView({ workouts, trainingWeeks = [] }: ScheduleViewProps) {
   const todayRef = useRef<HTMLDivElement>(null);
   const workoutsByDate = groupWorkoutsByDate(workouts);
+
+  // Create a map of training weeks by their end date for easy lookup
+  const weekSummaryByEndDate = new Map<string, TrainingWeekSummary>();
+  for (const tw of trainingWeeks) {
+    weekSummaryByEndDate.set(tw.endDate, tw);
+  }
 
   // Generate list of weeks to display
   const weekStart = getWeekStart(new Date());
@@ -285,6 +370,21 @@ export function ScheduleView({ workouts }: ScheduleViewProps) {
                     </div>
                   );
                 })}
+
+                {/* Weekly Summary Card - show at end of completed weeks */}
+                {(() => {
+                  const weekEndStr = toLocalDateString(week.end);
+                  const trainingSummary = weekSummaryByEndDate.get(weekEndStr);
+                  // Also check by matching start date (training weeks might use different date conventions)
+                  const weekStartStr = toLocalDateString(week.start);
+                  const summaryByStart = trainingWeeks.find(tw => tw.startDate === weekStartStr);
+                  const summary = trainingSummary || summaryByStart;
+
+                  if (summary && summary.status === 'completed' && summary.weekSummary) {
+                    return <WeeklySummaryCard summary={summary} />;
+                  }
+                  return null;
+                })()}
               </div>
             </section>
           );

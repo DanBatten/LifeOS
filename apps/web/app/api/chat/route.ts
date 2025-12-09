@@ -2,12 +2,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createLLMClient } from '@lifeos/llm';
 import { runChatFlow, type ConversationMessage } from '@lifeos/workflows';
-import { getSupabase, insertRecord } from '@/lib/supabase';
+import { getSupabase, getSupabaseService, insertRecord } from '@/lib/supabase';
 import { getEnv } from '@/lib/env';
+import { syncGarminMetrics, syncLatestActivity } from '@lifeos/skills';
 
+/**
+ * Context types that determine data loading and routing behavior:
+ * - default: Broad context, all agents available, balanced data loading
+ * - post-run: Training focused, syncs Garmin, routes to training-coach
+ * - health: Health/recovery focused, routes to health-agent
+ * - planning: Tasks/whiteboard focused, balanced routing
+ */
 const ChatRequestSchema = z.object({
   message: z.string().min(1),
   sessionId: z.string().uuid().nullish(),
+  context: z.enum(['default', 'post-run', 'health', 'planning']).optional(),
 });
 
 /**
@@ -24,14 +33,42 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { message, sessionId } = ChatRequestSchema.parse(body);
+    const { message, sessionId, context } = ChatRequestSchema.parse(body);
 
     const env = getEnv();
     const supabase = getSupabase();
+    const supabaseService = getSupabaseService();
     const llmClient = createLLMClient();
 
     // Get or create session ID
     const currentSessionId = sessionId || crypto.randomUUID();
+
+    // For post-run context, sync Garmin data first to get latest workout
+    let activitySyncResult = null;
+    if (context === 'post-run') {
+      console.log('[Chat] Post-run context detected, syncing Garmin activity...');
+      try {
+        // Sync the latest activity (workout) - this is the critical one for post-run
+        activitySyncResult = await syncLatestActivity(supabaseService, env.USER_ID, {
+          date: new Date().toISOString().split('T')[0],
+          forceResync: false, // Don't re-sync if already synced
+        });
+        console.log('[Chat] Activity sync result:', {
+          success: activitySyncResult.success,
+          action: activitySyncResult.action,
+          workout: activitySyncResult.workout?.title,
+        });
+
+        // Also sync health metrics in background
+        syncGarminMetrics(supabaseService, env.USER_ID, {
+          date: new Date().toISOString().split('T')[0],
+        }).catch(err => console.error('[Chat] Background health sync failed:', err));
+
+      } catch (syncError) {
+        console.error('[Chat] Garmin activity sync failed:', syncError);
+        // Continue anyway - we'll use whatever data is available
+      }
+    }
 
     // Fetch recent conversation history for context-aware routing
     let conversationHistory: ConversationMessage[] = [];
@@ -61,7 +98,11 @@ export async function POST(request: NextRequest) {
       env.USER_ID,
       message,
       env.TIMEZONE,
-      { conversationHistory }
+      {
+        conversationHistory,
+        context,
+        syncedWorkout: activitySyncResult?.workout || undefined,
+      }
     );
 
     // Save chat messages to database
@@ -88,6 +129,40 @@ export async function POST(request: NextRequest) {
 
     if (assistantMsgError) {
       console.error('Failed to save assistant message:', assistantMsgError);
+    }
+
+    // For post-run context, save the coach analysis and athlete feedback to the workout
+    // This happens regardless of sync action (created, updated, or already_synced)
+    if (context === 'post-run') {
+      const workoutId = activitySyncResult?.workout?.id;
+      console.log('[Chat] Post-run context - attempting to save notes. WorkoutId:', workoutId, 'SyncAction:', activitySyncResult?.action);
+
+      if (workoutId) {
+        try {
+          const { error: workoutUpdateError } = await supabaseService
+            .from('workouts')
+            .update({
+              coach_notes: result.response,
+              personal_notes: message, // The user's message about their run
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', workoutId);
+
+          if (workoutUpdateError) {
+            console.error('[Chat] Failed to save coach notes:', workoutUpdateError);
+          } else {
+            console.log('[Chat] Successfully saved coach notes to workout', workoutId);
+          }
+        } catch (saveError) {
+          console.error('[Chat] Error saving coach notes:', saveError);
+        }
+      } else {
+        console.warn('[Chat] Post-run context but no workout ID available. SyncResult:', {
+          success: activitySyncResult?.success,
+          action: activitySyncResult?.action,
+          error: activitySyncResult?.error,
+        });
+      }
     }
 
     return NextResponse.json({

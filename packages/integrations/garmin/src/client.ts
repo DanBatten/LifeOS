@@ -11,6 +11,7 @@ import type {
   GarminHRVData,
   GarminBodyComposition,
   GarminConfig,
+  GarminLapData,
 } from './types.js';
 
 
@@ -414,10 +415,76 @@ export class GarminMCPClient {
   }
 
   /**
-   * Get activity splits
+   * Get activity splits/laps with structured data
+   * Returns per-mile or per-km lap data for workout analysis
    */
-  async getActivitySplits(activityId: number): Promise<unknown> {
-    return this.callTool('get_activity_splits', { activity_id: String(activityId) });
+  async getActivitySplits(activityId: number): Promise<GarminLapData[]> {
+    const raw = await this.callTool<unknown>('get_activity_splits', { activity_id: String(activityId) });
+    return this.normalizeSplitsResponse(raw);
+  }
+
+  /**
+   * Normalize splits response to structured lap data
+   */
+  private normalizeSplitsResponse(raw: unknown): GarminLapData[] {
+    // The response structure varies - handle multiple formats
+    const laps: GarminLapData[] = [];
+
+    if (!raw) return laps;
+
+    // If it's already an array of laps
+    if (Array.isArray(raw)) {
+      for (const lap of raw) {
+        laps.push(this.normalizeOneLap(lap, laps.length + 1));
+      }
+      return laps;
+    }
+
+    // If it's an object with lapDTOs or splits array
+    const obj = raw as Record<string, unknown>;
+    const lapArray = obj.lapDTOs || obj.splits || obj.laps || [];
+
+    if (Array.isArray(lapArray)) {
+      for (const lap of lapArray) {
+        laps.push(this.normalizeOneLap(lap, laps.length + 1));
+      }
+    }
+
+    return laps;
+  }
+
+  /**
+   * Normalize a single lap to our format
+   */
+  private normalizeOneLap(lap: unknown, index: number): GarminLapData {
+    const l = lap as Record<string, unknown>;
+
+    // Convert duration from seconds and distance from meters
+    const durationSec = (l.duration || l.elapsedDuration || l.movingDuration || 0) as number;
+    const distanceM = (l.distance || 0) as number;
+    const distanceMi = distanceM / 1609.34;
+
+    // Calculate pace (min/mi)
+    let pacePerMile: string | null = null;
+    if (distanceMi > 0 && durationSec > 0) {
+      const paceSeconds = durationSec / distanceMi;
+      const mins = Math.floor(paceSeconds / 60);
+      const secs = Math.round(paceSeconds % 60);
+      pacePerMile = `${mins}:${String(secs).padStart(2, '0')}`;
+    }
+
+    return {
+      lapNumber: (l.lapIndex || l.splitNumber || index) as number,
+      distanceMiles: Math.round(distanceMi * 100) / 100,
+      durationSeconds: Math.round(durationSec),
+      pacePerMile,
+      avgHeartRate: (l.averageHR || l.avgHr || l.averageHeartRate) as number | undefined,
+      maxHeartRate: (l.maxHR || l.maxHr || l.maxHeartRate) as number | undefined,
+      avgCadence: (l.averageRunCadence || l.averageCadence || l.avgCadence) as number | undefined,
+      elevationGainFt: l.elevationGain ? Math.round((l.elevationGain as number) * 3.28084) : undefined,
+      elevationLossFt: l.elevationLoss ? Math.round((l.elevationLoss as number) * 3.28084) : undefined,
+      calories: l.calories as number | undefined,
+    };
   }
 
   /**

@@ -1,24 +1,29 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { ChatModal } from './ChatModal';
+import { getChatContextForPath, getApiContextType, type ChatContextConfig } from '@/lib/chat-context';
 
 interface FloatingChatBarProps {
-  placeholder?: string;
-  context?: 'default' | 'post-run';
+  /** Override the auto-detected context config */
+  contextOverride?: Partial<ChatContextConfig>;
 }
 
-export function FloatingChatBar({ placeholder, context: contextProp }: FloatingChatBarProps) {
+export function FloatingChatBar({ contextOverride }: FloatingChatBarProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [pendingMessage, setPendingMessage] = useState<string | undefined>();
   const inputRef = useRef<HTMLInputElement>(null);
   const pathname = usePathname();
+  const router = useRouter();
 
-  // Determine context and placeholder based on current page
-  const isSchedulePage = pathname === '/schedule';
-  const context = contextProp || (isSchedulePage ? 'post-run' : 'default');
-  const placeholderText = placeholder || (isSchedulePage ? "How was your run today?" : "Ask anything...");
+  // Get context configuration based on current page path
+  const pageContext = getChatContextForPath(pathname);
+  const contextConfig = { ...pageContext, ...contextOverride };
+
+  // Derive values from context config
+  const apiContext = getApiContextType(contextConfig);
+  const placeholderText = contextConfig.placeholder;
 
   const handleFocus = () => {
     setIsModalOpen(true);
@@ -39,6 +44,11 @@ export function FloatingChatBar({ placeholder, context: contextProp }: FloatingC
   const handleModalClose = () => {
     setIsModalOpen(false);
     setPendingMessage(undefined);
+  };
+
+  const handleDataUpdated = () => {
+    // Refresh the current page data (server components will re-fetch)
+    router.refresh();
   };
 
   return (
@@ -135,7 +145,9 @@ export function FloatingChatBar({ placeholder, context: contextProp }: FloatingC
         isOpen={isModalOpen}
         onClose={handleModalClose}
         initialMessage={pendingMessage}
-        context={context}
+        context={apiContext}
+        contextConfig={contextConfig}
+        onDataUpdated={handleDataUpdated}
       />
     </>
   );

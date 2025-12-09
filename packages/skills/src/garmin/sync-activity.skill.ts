@@ -134,7 +134,28 @@ export async function syncLatestActivity(
 
     const garminActivityId = runningActivity.activityId?.toString();
 
-    // 2. Check if this activity is already synced
+    // 2a. Fetch the lap/split data for detailed analysis
+    let lapData: Array<{
+      lapNumber: number;
+      distanceMiles: number;
+      durationSeconds: number;
+      pacePerMile: string | null;
+      avgHeartRate?: number;
+      maxHeartRate?: number;
+      avgCadence?: number;
+      elevationGainFt?: number;
+    }> = [];
+
+    if (runningActivity.activityId) {
+      try {
+        lapData = await client.getActivitySplits(runningActivity.activityId);
+        logger.info(`[Skill:SyncLatestActivity] Fetched ${lapData.length} laps for activity ${garminActivityId}`);
+      } catch (lapError) {
+        logger.warn(`[Skill:SyncLatestActivity] Could not fetch laps: ${lapError}`);
+      }
+    }
+
+    // 2b. Check if this activity is already synced
     if (!options.forceResync && garminActivityId) {
       const { data: existing } = await supabase
         .from('workouts')
@@ -209,10 +230,12 @@ export async function syncLatestActivity(
         garmin_activity_id: garminActivityId,
         actual_distance_miles: distanceMiles,
         actual_pace: actualPace,
-        elevation_gain_ft: runningActivity.elevationGain 
-          ? Math.round(runningActivity.elevationGain * 3.28084) 
+        elevation_gain_ft: runningActivity.elevationGain
+          ? Math.round(runningActivity.elevationGain * 3.28084)
           : null,
         cadence_avg: runningActivity.avgRunningCadence,
+        // Include lap/split data for detailed analysis
+        laps: lapData,
         syncedAt: new Date().toISOString(),
       },
     };
@@ -285,9 +308,9 @@ export async function syncLatestActivity(
 function transformWorkout(data: Record<string, unknown>): SyncedWorkout {
   const durationMin = data.actual_duration_minutes as number | null;
   const metadata = (data.metadata || {}) as Record<string, unknown>;
-  
+
   // Get distance and pace from metadata (or columns if they exist)
-  const distanceMi = (data.actual_distance_miles as number | null) 
+  const distanceMi = (data.actual_distance_miles as number | null)
     || (metadata.actual_distance_miles as number | null);
   const actualPace = (metadata.actual_pace as string | null)
     || (durationMin && distanceMi && distanceMi > 0
@@ -296,9 +319,12 @@ function transformWorkout(data: Record<string, unknown>): SyncedWorkout {
             return `${Math.floor(paceSeconds / 60)}:${String(Math.round(paceSeconds % 60)).padStart(2, '0')}/mi`;
           })()
         : null);
-  
-  const garminActivityId = (data.external_id as string | null) 
+
+  const garminActivityId = (data.external_id as string | null)
     || (metadata.garmin_activity_id as string | null);
+
+  // Get lap data from metadata (the detailed per-mile breakdown)
+  const laps = (metadata.laps as unknown[]) || (data.splits as unknown[]) || [];
 
   return {
     id: data.id as string,
@@ -306,11 +332,11 @@ function transformWorkout(data: Record<string, unknown>): SyncedWorkout {
     workoutType: data.workout_type as string,
     scheduledDate: data.scheduled_date as string,
     status: data.status as string,
-    
+
     prescribedDistanceMiles: data.prescribed_distance_miles as number | null,
     prescribedPacePerMile: data.prescribed_pace_per_mile as string | null,
     prescribedDescription: data.prescribed_description as string | null,
-    
+
     actualDurationMinutes: durationMin,
     actualDistanceMiles: distanceMi,
     actualPacePerMile: actualPace,
@@ -319,12 +345,12 @@ function transformWorkout(data: Record<string, unknown>): SyncedWorkout {
     calories: data.calories as number | null,
     elevationGainFt: (data.elevation_gain_ft as number | null) || (metadata.elevation_gain_ft as number | null),
     cadenceAvg: (data.cadence_avg as number | null) || (metadata.cadence_avg as number | null),
-    splits: (data.splits as unknown[]) || [],
-    
+    splits: laps,
+
     coachNotes: data.coach_notes as string | null,
     athleteFeedback: data.athlete_feedback as string | null,
     perceivedExertion: data.perceived_exertion as number | null,
-    
+
     matchedToPlannedWorkout: !!(data.plan_id || data.week_number),
     garminActivityId,
   };

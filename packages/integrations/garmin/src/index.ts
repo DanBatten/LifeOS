@@ -27,6 +27,7 @@ export type {
   GarminActivityType,
   GarminSplit,
   GarminLap,
+  GarminLapData,
   GarminSample,
   // Health types
   GarminDailySummary,
