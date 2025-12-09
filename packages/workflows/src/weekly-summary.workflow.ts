@@ -65,6 +65,45 @@ interface TrainingWeek {
   status: string;
 }
 
+interface TrainingPlanContext {
+  name: string;
+  description: string;
+  goalEvent: string;
+  totalWeeks: number;
+  raceDate: string | null;
+  weeksToRace: number | null;
+  currentPhase: string | null;
+}
+
+/**
+ * Get training plan context for prompts
+ */
+async function getTrainingPlanContext(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<TrainingPlanContext | null> {
+  const { data } = await supabase
+    .from('training_plans')
+    .select('name, description, goal_event, total_weeks, metadata')
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .single();
+
+  if (!data) return null;
+
+  const metadata = (data.metadata || {}) as Record<string, unknown>;
+
+  return {
+    name: data.name,
+    description: data.description,
+    goalEvent: data.goal_event,
+    totalWeeks: data.total_weeks,
+    raceDate: metadata.race_date as string | null,
+    weeksToRace: metadata.weeks_to_race as number | null,
+    currentPhase: metadata.current_phase as string | null,
+  };
+}
+
 /**
  * Get the current training week based on date
  */
@@ -245,7 +284,8 @@ function buildWeeklySummaryPrompt(
   healthMetrics: HealthMetrics[],
   weekStats: WeeklySummaryResult['weekStats'],
   plannedVolume: number | null,
-  previousSummaries: string[]
+  previousSummaries: string[],
+  planContext: TrainingPlanContext | null
 ): string {
   // Format workout details
   const workoutDetails = workouts.map(w => {
@@ -276,7 +316,21 @@ function buildWeeklySummaryPrompt(
     ? `## Previous Weeks Context\n${previousSummaries.join('\n\n')}`
     : '';
 
-  return `You are a marathon training coach analyzing Week ${weekNumber} of a 16-week marathon training plan.
+  // Build training plan context section
+  const planName = planContext?.name || 'Marathon Training';
+  const totalWeeks = planContext?.totalWeeks || 16;
+  const goalEvent = planContext?.goalEvent || 'LA Marathon';
+  const raceDate = planContext?.raceDate ? new Date(planContext.raceDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'TBD';
+  const weeksToRace = planContext?.weeksToRace || '?';
+  const currentPhase = planContext?.currentPhase ? planContext.currentPhase.replace(/_/g, ' ') : 'training';
+
+  return `You are a marathon training coach analyzing Week ${weekNumber} of a ${totalWeeks}-week training plan.
+
+## Training Context
+- **Plan:** ${planName}
+- **Goal:** ${goalEvent} - Target 2:55
+- **Race Date:** ${raceDate} (${weeksToRace} weeks away)
+- **Current Phase:** ${currentPhase}
 
 ## Week ${weekNumber} Summary Data
 
@@ -304,9 +358,9 @@ Write a comprehensive weekly training summary. Include:
 2. **Key accomplishments** - What went well, PRs, strong executions
 3. **Areas of concern** - Any warning signs, missed workouts, fatigue indicators
 4. **Training load assessment** - Was the volume appropriate? How did the body respond?
-5. **Looking ahead** - Brief note on what to focus on next week
+5. **Looking ahead** - Brief note on what to focus on next week, considering where we are in the training cycle
 
-Keep the tone supportive but analytical. Reference specific data points. The athlete's goal is a 2:55 marathon at LA Marathon.
+Keep the tone supportive but analytical. Reference specific data points. Do NOT mention "6 weeks to marathon" or similar - use the actual weeks to race from the context above.
 
 Write in second person ("You completed...") and keep the summary to 300-500 words.`;
 }
@@ -347,14 +401,18 @@ export async function runWeeklySummaryWorkflow(
     // 5. Get previous summaries for context
     const previousSummaries = await getPreviousWeekSummaries(supabase, userId, trainingWeek.weekNumber);
 
-    // 6. Build prompt and generate summary
+    // 6. Get training plan context
+    const planContext = await getTrainingPlanContext(supabase, userId);
+
+    // 7. Build prompt and generate summary
     const prompt = buildWeeklySummaryPrompt(
       trainingWeek.weekNumber,
       workouts,
       healthMetrics,
       weekStats,
       trainingWeek.plannedVolumeMiles,
-      previousSummaries
+      previousSummaries,
+      planContext
     );
 
     const response: LLMResponse = await llmClient.chat({
@@ -366,7 +424,7 @@ export async function runWeeklySummaryWorkflow(
 
     const summary = response.content;
 
-    // 7. Save to database
+    // 8. Save to database
     const { error: updateError } = await supabase
       .from('training_weeks')
       .update({
