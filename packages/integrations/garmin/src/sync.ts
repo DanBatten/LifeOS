@@ -285,7 +285,6 @@ export class GarminSyncService {
           const { error } = await this.supabase
             .from('health_snapshots')
             .update({
-              garmin_sync_id: snapshotData.garminSyncId,
               sleep_hours: snapshotData.sleepHours,
               sleep_quality: snapshotData.sleepQuality,
               hrv: snapshotData.hrv,
@@ -310,7 +309,6 @@ export class GarminSyncService {
             .from('health_snapshots')
             .insert({
               user_id: this.userId,
-              garmin_sync_id: snapshotData.garminSyncId,
               snapshot_date: date,
               sleep_hours: snapshotData.sleepHours,
               sleep_quality: snapshotData.sleepQuality,
@@ -334,9 +332,17 @@ export class GarminSyncService {
 
         syncedCount++;
       } catch (error) {
-        logger.error(`Failed to sync health data for ${date}`,
+        let errorMsg: string;
+        if (error instanceof Error) {
+          errorMsg = error.message;
+        } else if (error && typeof error === 'object' && 'message' in error) {
+          errorMsg = String((error as { message: unknown }).message);
+        } else {
+          errorMsg = JSON.stringify(error);
+        }
+        logger.error(`Failed to sync health data for ${date}: ${errorMsg}`,
           error instanceof Error ? error : null,
-          { date }
+          { date, errorMsg }
         );
       }
     }

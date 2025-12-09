@@ -60,7 +60,11 @@ export async function syncGarminMetrics(
     try {
       const dailySummary = await client.getDailySummary(targetDate);
       if (dailySummary) {
-        healthData.stress_level = dailySummary.averageStressLevel;
+        // Convert 0-100 to 1-10 scale (constraint requires >= 1)
+        if (dailySummary.averageStressLevel && dailySummary.averageStressLevel > 0) {
+          const scaled = Math.round(dailySummary.averageStressLevel / 10);
+          healthData.stress_level = Math.max(1, scaled);
+        }
         healthData.metadata = {
           ...(healthData.metadata as object || {}),
           garmin: {
@@ -118,13 +122,29 @@ export async function syncGarminMetrics(
     try {
       const hrvData = await client.getHRVData(targetDate);
       if (hrvData) {
-        healthData.hrv = hrvData.lastNightAvg;
-        
+        // Handle both structured response (lastNightAvg) and array-like response (numbered keys)
+        let hrvValue: number | undefined;
+        if (hrvData.lastNightAvg) {
+          hrvValue = hrvData.lastNightAvg;
+        } else if (typeof hrvData === 'object') {
+          // Handle array-like HRV response with numbered keys containing {value, startGMT}
+          const values = Object.values(hrvData)
+            .filter((v): v is { value: number } => v && typeof v === 'object' && 'value' in v && typeof v.value === 'number')
+            .map(v => v.value);
+          if (values.length > 0) {
+            hrvValue = Math.round(values.reduce((a, b) => a + b, 0) / values.length);
+          }
+        }
+
+        if (hrvValue) {
+          healthData.hrv = hrvValue;
+        }
+
         const meta = healthData.metadata as Record<string, unknown>;
         meta.garmin = {
           ...(meta.garmin as object || {}),
           hrv: {
-            lastNightAvg: hrvData.lastNightAvg,
+            lastNightAvg: hrvValue,
             status: hrvData.status,
             baseline: hrvData.baseline,
           },
@@ -164,12 +184,32 @@ export async function syncGarminMetrics(
 
     // Save to database
     if (!options.dryRun && metricsUpdated.length > 0) {
-      const { error } = await supabase
+      // Check if record exists first
+      const { data: existing } = await supabase
         .from('health_snapshots')
-        .upsert(healthData, { onConflict: 'user_id,snapshot_date' });
+        .select('id')
+        .eq('user_id', userId)
+        .eq('snapshot_date', targetDate)
+        .maybeSingle();
 
-      if (error) {
-        errors.push(`database: ${error.message}`);
+      let dbError;
+      if (existing) {
+        // Update existing record
+        const { error } = await supabase
+          .from('health_snapshots')
+          .update(healthData)
+          .eq('id', existing.id);
+        dbError = error;
+      } else {
+        // Insert new record
+        const { error } = await supabase
+          .from('health_snapshots')
+          .insert(healthData);
+        dbError = error;
+      }
+
+      if (dbError) {
+        errors.push(`database: ${dbError.message}`);
       } else {
         logger.info(`[Skill:SyncGarminMetrics] Saved metrics: ${metricsUpdated.join(', ')}`);
       }

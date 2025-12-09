@@ -270,9 +270,11 @@ export function mapDailyDataToHealthSnapshot(
   // Daily summary data
   if (daily) {
     snapshot.restingHr = daily.restingHeartRate;
-    snapshot.stressLevel = daily.averageStressLevel 
-      ? Math.round(daily.averageStressLevel / 10) // Convert 0-100 to 0-10 scale
-      : undefined;
+    // Convert 0-100 to 1-10 scale (constraint requires >= 1)
+    if (daily.averageStressLevel && daily.averageStressLevel > 0) {
+      const scaled = Math.round(daily.averageStressLevel / 10);
+      snapshot.stressLevel = Math.max(1, scaled); // Ensure minimum of 1
+    }
     
     // Body Battery
     snapshot.metadata = {
@@ -335,10 +337,20 @@ export function mapDailyDataToHealthSnapshot(
 
   // HRV data (may override sleep HRV with more detailed data)
   if (hrv) {
+    // Handle structured HRV response with lastNightAvg
     if (hrv.lastNightAvg) {
       snapshot.hrv = Math.round(hrv.lastNightAvg);
     }
-    
+    // Handle array-like HRV response with numbered keys containing {value, startGMT}
+    else if (typeof hrv === 'object') {
+      const values = Object.values(hrv)
+        .filter((v): v is { value: number } => v && typeof v === 'object' && 'value' in v && typeof v.value === 'number')
+        .map(v => v.value);
+      if (values.length > 0) {
+        snapshot.hrv = Math.round(values.reduce((a, b) => a + b, 0) / values.length);
+      }
+    }
+
     snapshot.metadata = {
       ...snapshot.metadata,
       hrv: {
