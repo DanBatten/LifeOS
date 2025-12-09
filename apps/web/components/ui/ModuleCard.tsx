@@ -130,7 +130,7 @@ export function ModuleCard({
             shadow-lg transition-transform hover:scale-110
             ${color === 'lime' ? 'bg-[#1a1a1a] text-white' : 'bg-white text-gray-900'}
           `}>
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
             </svg>
           </div>
@@ -161,8 +161,8 @@ export function MiniCard({ title, value, sublabel, href }: MiniCardProps) {
         <span className="text-sm font-medium text-gray-600 leading-tight">
           {title}
         </span>
-        <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center">
-          <svg className="w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center flex-shrink-0">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="text-gray-400">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
           </svg>
         </div>
