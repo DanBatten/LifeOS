@@ -21,3 +21,4 @@ export {
 
 // SDK-based Agents
 export { SdkTrainingCoachAgent } from './SdkTrainingCoachAgent.js';
+export { SdkHealthAgent } from './SdkHealthAgent.js';

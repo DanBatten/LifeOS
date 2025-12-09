@@ -16,7 +16,7 @@ import { getLogger } from '@lifeos/core';
 import { loadAgentContext } from '@lifeos/skills';
 import type { AgentContext } from '@lifeos/skills';
 import { routeMessage, quickRoute, type RouteResult, type ConversationMessage } from './router.js';
-import { HealthAgent, TrainingCoachAgent, SdkTrainingCoachAgent } from '@lifeos/agents';
+import { HealthAgent, TrainingCoachAgent, SdkTrainingCoachAgent, SdkHealthAgent } from '@lifeos/agents';
 import type { SdkAgentOutput } from '@lifeos/agents';
 
 const logger = getLogger();
@@ -83,8 +83,8 @@ export async function runChatFlow(
   const context = await loadAgentContext(supabase, userId, timezone);
 
   // 3. AGENT: Get response (with tools for modifications)
-  // Use SDK agent if requested and agent is training-coach
-  const useSdkAgent = options.useSdk && routeResult.agentId === 'training-coach';
+  // Use SDK agent if requested
+  const useSdkAgent = options.useSdk;
 
   let response: {
     content: string;
@@ -95,8 +95,8 @@ export async function runChatFlow(
   };
 
   if (useSdkAgent) {
-    logger.info(`[Workflow:ChatFlow] Using SDK agent for training-coach`);
-    response = await getSdkAgentResponse(supabase, context, message, options.resumeSession);
+    logger.info(`[Workflow:ChatFlow] Using SDK agent for ${routeResult.agentId}`);
+    response = await getSdkAgentResponse(supabase, routeResult.agentId, context, message, options.resumeSession);
   } else {
     response = await getAgentResponse(supabase, llmClient, routeResult.agentId, context, message);
   }
@@ -354,6 +354,7 @@ ${context.whiteboardEntries.filter(e => e.agentId === 'training-coach').slice(0,
  */
 async function getSdkAgentResponse(
   supabase: SupabaseClient,
+  agentId: string,
   context: AgentContext,
   message: string,
   resumeSession?: string
@@ -364,8 +365,10 @@ async function getSdkAgentResponse(
   sessionId?: string;
   numTurns?: number;
 }> {
-  // Create the SDK-based agent
-  const agent = new SdkTrainingCoachAgent();
+  // Create the appropriate SDK-based agent
+  const agent = agentId === 'health-agent'
+    ? new SdkHealthAgent()
+    : new SdkTrainingCoachAgent();
 
   // Build agent context with supabase for tool execution
   const agentContext = {

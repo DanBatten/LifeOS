@@ -13,6 +13,7 @@ export * from './training/prompts.js';
 export {
   SdkAgent,
   SdkTrainingCoachAgent,
+  SdkHealthAgent,
   createMcpServerFromTools,
   getMcpToolNames,
   ToolResultCollector,
