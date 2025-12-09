@@ -8,7 +8,7 @@ This document analyzes the feasibility and approach for migrating LifeOS agents 
 
 ## Implementation Status
 
-**Phase 1 Complete!** The following has been implemented:
+**Phase 1 & 2 Complete!** Full SDK agent integration implemented:
 
 | Component | Status | Location |
 |-----------|--------|----------|
@@ -16,23 +16,49 @@ This document analyzes the feasibility and approach for migrating LifeOS agents 
 | SdkAgent base class | ✅ Done | `packages/agents/src/sdk/SdkAgent.ts` |
 | MCP Tool Adapter | ✅ Done | `packages/agents/src/sdk/McpToolAdapter.ts` |
 | SdkTrainingCoachAgent | ✅ Done | `packages/agents/src/sdk/SdkTrainingCoachAgent.ts` |
-| Package exports | ✅ Done | `packages/agents/src/index.ts` |
+| SdkHealthAgent | ✅ Done | `packages/agents/src/sdk/SdkHealthAgent.ts` |
+| ChatFlow Integration | ✅ Done | `packages/workflows/src/chat-flow.workflow.ts` |
+| Marathon Training Skills | ✅ Done | `.claude/skills/marathon-training/` |
 | Test script | ✅ Done | `scripts/test-sdk-agent.ts` |
 
-### Quick Start
+### Quick Start - Direct Agent Use
 
 ```typescript
-import { SdkTrainingCoachAgent } from '@lifeos/agents';
+import { SdkTrainingCoachAgent, SdkHealthAgent } from '@lifeos/agents';
 
-const agent = new SdkTrainingCoachAgent();
+// Training Coach
+const coach = new SdkTrainingCoachAgent();
+const output = await coach.execute(context);
+console.log(`Cost: $${output.totalCostUsd}`);
 
-const output = await agent.execute(context, {
-  permissionMode: 'bypassPermissions',
+// Health Agent
+const health = new SdkHealthAgent();
+const healthOutput = await health.execute(context);
+```
+
+### Quick Start - Via ChatFlow
+
+```typescript
+import { runChatFlow } from '@lifeos/workflows';
+
+// Enable SDK mode for enhanced capabilities
+const result = await runChatFlow(supabase, llm, userId, message, tz, {
+  useSdk: true,           // Use SDK agents
+  resumeSession: 'xxx',   // Optional: resume previous session
 });
 
-console.log(output.content);
-console.log(`Cost: $${output.totalCostUsd}`);
+console.log(result.response);
+console.log(`Cost: $${result.costUsd}`);
+console.log(`Session: ${result.sessionId}`);  // For resumption
 ```
+
+### Marathon Training Skills
+
+Domain knowledge available at `.claude/skills/marathon-training/`:
+- `SKILL.md` - Training phases, workout types, metrics
+- `PACING.md` - Pace zones by goal time
+- `RECOVERY.md` - HRV, RHR, sleep analysis
+- `RACE_DAY.md` - Race execution strategy
 
 ---
 
