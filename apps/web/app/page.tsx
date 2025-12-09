@@ -1,97 +1,141 @@
-import Link from 'next/link';
+import { getSupabase } from '@/lib/supabase';
+import { getEnv } from '@/lib/env';
+import {
+  HealthRepository,
+  WorkoutRepository,
+  WhiteboardRepository,
+  TaskRepository,
+} from '@lifeos/database';
+import { HealthModule } from '@/components/dashboard/HealthModule';
+import { TrainingModule } from '@/components/dashboard/TrainingModule';
+import { PlanningModule } from '@/components/dashboard/PlanningModule';
+import { FloatingChatBar } from '@/components/chat/FloatingChatBar';
 
-export default function Home() {
+// Calculate weekly mileage from recent workouts
+function calculateWeeklyMileage(workouts: { scheduledDate?: Date; prescribedDistanceMiles?: number; metadata?: Record<string, unknown> }[]) {
+  const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const today = new Date();
+  const dayOfWeek = today.getDay();
+  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const monday = new Date(today);
+  monday.setDate(today.getDate() + mondayOffset);
+  monday.setHours(0, 0, 0, 0);
+
+  const weeklyMileage: { day: string; miles: number }[] = dayLabels.map((day) => ({
+    day,
+    miles: 0,
+  }));
+
+  for (const workout of workouts) {
+    if (!workout.scheduledDate) continue;
+
+    const workoutDate = new Date(workout.scheduledDate);
+    const diffDays = Math.floor((workoutDate.getTime() - monday.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays >= 0 && diffDays < 7) {
+      const actualDistance = workout.metadata?.actualDistanceMiles as number | undefined;
+      const distance = actualDistance ?? workout.prescribedDistanceMiles ?? 0;
+      weeklyMileage[diffDays].miles += distance;
+    }
+  }
+
+  return weeklyMileage;
+}
+
+export default async function Dashboard() {
+  const supabase = getSupabase();
+  const env = getEnv();
+  const userId = env.USER_ID;
+
+  // Initialize repositories
+  const healthRepo = new HealthRepository(supabase);
+  const workoutRepo = new WorkoutRepository(supabase);
+  const whiteboardRepo = new WhiteboardRepository(supabase);
+  const taskRepo = new TaskRepository(supabase);
+
+  // Fetch all data in parallel
+  const [healthData, recoveryScore, healthAverages, recentWorkouts, weeklySummary, upcomingWorkouts, whiteboardEntries, alerts, priorityTasks] = await Promise.all([
+    healthRepo.getToday(userId).catch(() => null),
+    healthRepo.calculateRecoveryScore(userId).catch(() => 0.5),
+    healthRepo.getAverages(userId, 7).catch(() => ({ sleepHours: null, hrv: null, restingHr: null })),
+    workoutRepo.findRecentCompleted(userId, 7).catch(() => []),
+    workoutRepo.getWeeklySummary(userId).catch(() => ({ planned: 0, completed: 0, skipped: 0, totalDuration: 0, byType: {} })),
+    workoutRepo.findUpcoming(userId, 1).catch(() => []),
+    whiteboardRepo.findToday(userId).catch(() => []),
+    whiteboardRepo.findAlerts(userId).catch(() => []),
+    taskRepo.findHighPriority(userId).catch(() => []),
+  ]);
+
+  // Calculate weekly mileage for chart
+  const weeklyMileage = calculateWeeklyMileage(recentWorkouts);
+  const totalWeeklyMiles = weeklyMileage.reduce((sum, d) => sum + d.miles, 0);
+
+  // Filter whiteboard entries
+  const insights = whiteboardEntries.filter((e) => e.entryType !== 'alert');
+
+  // Get current date formatted
+  const today = new Date();
+  const dateString = today.toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  });
+
   return (
-    <main className="min-h-screen p-8">
-      <div className="max-w-6xl mx-auto">
-        <header className="mb-12">
-          <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
+    <main className="min-h-screen bg-[#fafafa] dark:bg-[#0a0a0a] pb-28">
+      {/* Header */}
+      <header className="px-6 pt-12 pb-8">
+        <div className="max-w-lg mx-auto">
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-sm text-gray-500">{dateString}</p>
+            <div className="w-8 h-8 rounded-full bg-[#D4E157] flex items-center justify-center">
+              <span className="text-xs font-bold text-gray-900">
+                {/* User initial or icon */}
+                D
+              </span>
+            </div>
+          </div>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">
             LifeOS
           </h1>
-          <p className="text-gray-600 dark:text-gray-400">
-            Your personal multi-agent operating system
-          </p>
-        </header>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {/* Chat Card */}
-          <Link href="/chat" className="block">
-            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg hover:shadow-xl transition-shadow">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                💬 Chat
-              </h2>
-              <p className="text-gray-600 dark:text-gray-400">
-                Talk to your personal AI assistant. Ask about your schedule,
-                health, tasks, or get recommendations.
-              </p>
-            </div>
-          </Link>
-
-          {/* Post-Run Card */}
-          <Link href="/post-run" className="block">
-            <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl p-6 shadow-lg hover:shadow-xl transition-shadow">
-              <h2 className="text-xl font-semibold text-white mb-2">
-                🏃 Post-Run Analysis
-              </h2>
-              <p className="text-emerald-100">
-                Just finished a run? Sync from Garmin and get your coach&apos;s
-                analysis with personalized feedback.
-              </p>
-            </div>
-          </Link>
-
-          {/* Today Panel Card */}
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg">
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-              Today&apos;s Overview
-            </h2>
-            <div className="space-y-4">
-              <div>
-                <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                  Health Status
-                </h3>
-                <p className="text-gray-600 dark:text-gray-300 mt-1">
-                  No health data for today yet.
-                </p>
-              </div>
-              <div>
-                <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                  Upcoming Events
-                </h3>
-                <p className="text-gray-600 dark:text-gray-300 mt-1">
-                  No events scheduled.
-                </p>
-              </div>
-              <div>
-                <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                  Priority Tasks
-                </h3>
-                <p className="text-gray-600 dark:text-gray-300 mt-1">
-                  No tasks for today.
-                </p>
-              </div>
-            </div>
-          </div>
         </div>
+      </header>
 
-        {/* Quick Actions */}
-        <div className="mt-8">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            Quick Actions
-          </h2>
-          <div className="flex flex-wrap gap-3">
-            <button className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors">
-              Log Health Check-in
-            </button>
-            <button className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors">
-              Add Task
-            </button>
-            <button className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors">
-              Log Workout
-            </button>
-          </div>
+      {/* Dashboard Content */}
+      <div className="px-6">
+        <div className="max-w-lg mx-auto space-y-6">
+          {/* Health Module */}
+          <section>
+            <HealthModule
+              healthData={healthData}
+              recoveryScore={recoveryScore}
+              averages={healthAverages}
+            />
+          </section>
+
+          {/* Training Module */}
+          <section>
+            <TrainingModule
+              weeklySummary={weeklySummary}
+              weeklyMileage={weeklyMileage}
+              upcomingWorkout={upcomingWorkouts[0] || null}
+              totalWeeklyMiles={totalWeeklyMiles}
+            />
+          </section>
+
+          {/* Planning Module */}
+          <section>
+            <PlanningModule
+              whiteboardEntries={insights}
+              priorityTasks={priorityTasks.slice(0, 5)}
+              alerts={alerts}
+            />
+          </section>
         </div>
       </div>
+
+      {/* Floating Chat Bar */}
+      <FloatingChatBar />
     </main>
   );
 }

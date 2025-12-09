@@ -61,9 +61,12 @@ export class WorkoutRepository extends BaseRepository<
 
   /**
    * Find upcoming planned workouts
+   * Gets workouts scheduled from today onwards that haven't been completed
    */
   async findUpcoming(userId: string, limit = 7): Promise<Workout[]> {
-    const today = new Date().toISOString().split('T')[0];
+    // Use local date to avoid timezone issues
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
     const { data, error } = await this.client
       .from(this.tableName)
@@ -72,7 +75,33 @@ export class WorkoutRepository extends BaseRepository<
       .eq('status', 'planned')
       .gte('scheduled_date', today)
       .order('scheduled_date', { ascending: true })
+      .order('scheduled_time', { ascending: true, nullsFirst: true })
       .limit(limit);
+
+    if (error) throw error;
+
+    return (data || []).map((item) => this.transformFromDb(item));
+  }
+
+  /**
+   * Find all workouts for a date range (for schedule view)
+   */
+  async findByDateRange(
+    userId: string,
+    startDate: Date,
+    endDate: Date
+  ): Promise<Workout[]> {
+    const startStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
+    const endStr = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
+
+    const { data, error } = await this.client
+      .from(this.tableName)
+      .select('*')
+      .eq('user_id', userId)
+      .gte('scheduled_date', startStr)
+      .lte('scheduled_date', endStr)
+      .order('scheduled_date', { ascending: true })
+      .order('scheduled_time', { ascending: true, nullsFirst: true });
 
     if (error) throw error;
 

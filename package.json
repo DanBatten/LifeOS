@@ -31,6 +31,7 @@
     "node": ">=20"
   },
   "dependencies": {
+    "@notionhq/client": "^5.4.0",
     "csv-parse": "^6.1.0"
   }
 }

@@ -21,6 +21,9 @@ module.exports = {
           950: '#082f49',
         },
       },
+      animation: {
+        'bounce-slow': 'bounce 1.5s infinite',
+      },
     },
   },
   plugins: [],
