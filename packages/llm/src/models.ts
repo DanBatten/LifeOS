@@ -201,9 +201,12 @@ export const ALL_MODELS: Record<string, ModelDefinition> = {
 // Agent Model Assignments
 // ===========================================
 
-export type AgentId = 
+export type AgentId =
   | 'health-agent'
   | 'training-coach'
+  | 'planning-coach'
+  | 'nutrition-agent'
+  | 'meal-planner-agent'
   | 'workload-agent'
   | 'reflection-agent'
   | 'orchestrator';
@@ -236,6 +239,30 @@ export const AGENT_MODEL_CONFIG: Record<AgentId, AgentModelConfig> = {
     temperature: 0.4,
     maxTokens: 3000,
     description: 'Using Claude Sonnet 4.5 - better at following tool usage instructions',
+  },
+
+  // Planning Coach - strategic weekly planning and periodization
+  'planning-coach': {
+    modelKey: 'claude-sonnet-4-5',
+    temperature: 0.3,
+    maxTokens: 2500,
+    description: 'Balanced model for strategic planning and workout adjustments',
+  },
+
+  // Nutrition Agent - fueling and hydration recommendations
+  'nutrition-agent': {
+    modelKey: 'claude-haiku-4-5',
+    temperature: 0.2,
+    maxTokens: 1500,
+    description: 'Fast model for nutrition recommendations - deterministic and practical',
+  },
+
+  // Meal Planner Agent - family meal planning and grocery lists
+  'meal-planner-agent': {
+    modelKey: 'claude-haiku-4-5',
+    temperature: 0.3,
+    maxTokens: 2000,
+    description: 'Fast model for practical meal planning - creative but consistent',
   },
 
   // Workload Agent - quick task analysis

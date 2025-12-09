@@ -152,6 +152,16 @@ export interface HealthSnapshot {
   alcoholUnits?: number;
   caffeineMg?: number;
   notes?: string;
+  // Garmin activity data
+  activeCalories?: number;
+  totalCalories?: number;
+  steps?: number;
+  stepsGoal?: number;
+  moderateIntensityMinutes?: number;
+  vigorousIntensityMinutes?: number;
+  avgSpo2?: number;
+  minSpo2?: number;
+  floorsAscended?: number;
   source: string;
   metadata: Record<string, unknown>;
   createdAt: Date;
@@ -543,6 +553,9 @@ export type AgentId =
   | 'workload-agent'
   | 'training-agent'
   | 'training-coach'
+  | 'planning-coach'
+  | 'nutrition-agent'
+  | 'meal-planner-agent'
   | 'reflection-agent'
   | 'orchestrator';
 
@@ -812,4 +825,273 @@ export interface BiomarkerBaseline {
   metadata: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
+}
+
+// ===========================================
+// Meal Planning Types
+// ===========================================
+
+export type CookingSkill = 'beginner' | 'intermediate' | 'advanced';
+export type BudgetLevel = 'budget' | 'moderate' | 'premium';
+export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'pre_workout' | 'post_workout';
+export type DayOfWeek = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
+export type RecipeCategory = 'quick_weeknight' | 'batch_cooking' | 'special_occasion' | 'kid_favorite' | 'athlete_recovery' | 'pre_workout' | 'other';
+export type GrocerySection = 'produce' | 'proteins' | 'dairy' | 'grains' | 'pantry' | 'frozen' | 'athlete_specific' | 'other';
+export type AgeCategory = 'infant' | 'toddler' | 'child' | 'teen' | 'adult' | 'senior';
+export type PickyLevel = 'not_picky' | 'normal' | 'picky' | 'very_picky';
+export type FamilyRelationship = 'spouse' | 'child' | 'parent' | 'other';
+
+export interface MealPreferences {
+  favoriteFoods?: string[];
+  dislikedFoods?: string[];
+  cookingSkill?: CookingSkill;
+  weeknightCookingTime?: number; // minutes
+  weekendCookingTime?: number;
+  batchCookingDay?: DayOfWeek;
+  groceryStorePreference?: string;
+  budgetLevel?: BudgetLevel;
+  dietaryRestrictions?: string[];
+}
+
+export interface FamilyMember {
+  id: string;
+  userId: string;
+  name: string;
+  relationship: FamilyRelationship;
+  ageCategory?: AgeCategory;
+  dietaryRestrictions?: string[];
+  allergies?: string[];
+  favoriteFoods?: string[];
+  dislikedFoods?: string[];
+  pickyLevel?: PickyLevel;
+  notes?: string;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CreateFamilyMember {
+  name: string;
+  relationship: FamilyRelationship;
+  ageCategory?: AgeCategory;
+  dietaryRestrictions?: string[];
+  allergies?: string[];
+  favoriteFoods?: string[];
+  dislikedFoods?: string[];
+  pickyLevel?: PickyLevel;
+  notes?: string;
+}
+
+export interface MealPlan {
+  id: string;
+  userId: string;
+  weekStartDate: Date;
+  trainingPhase?: string;
+  weeklyMileage?: number;
+  hasLongRunDay?: DayOfWeek;
+  status: 'draft' | 'active' | 'completed' | 'archived';
+  generatedBy: string;
+  athleteNeedsSummary?: string;
+  notes?: string;
+  metadata: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CreateMealPlan {
+  weekStartDate: Date;
+  trainingPhase?: string;
+  weeklyMileage?: number;
+  hasLongRunDay?: DayOfWeek;
+  athleteNeedsSummary?: string;
+  notes?: string;
+}
+
+export interface PlannedMeal {
+  id: string;
+  mealPlanId: string;
+  userId: string;
+  dayOfWeek: DayOfWeek;
+  mealType: MealType;
+  name: string;
+  description?: string;
+  prepTimeMinutes?: number;
+  cookTimeMinutes?: number;
+  isFamilyMeal: boolean;
+  athleteModifications?: string;
+  kidModifications?: string;
+  trainingRelevance?: string;
+  recipeId?: string;
+  completed: boolean;
+  completionNotes?: string;
+  metadata: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CreatePlannedMeal {
+  mealPlanId: string;
+  dayOfWeek: DayOfWeek;
+  mealType: MealType;
+  name: string;
+  description?: string;
+  prepTimeMinutes?: number;
+  cookTimeMinutes?: number;
+  isFamilyMeal?: boolean;
+  athleteModifications?: string;
+  kidModifications?: string;
+  trainingRelevance?: string;
+  recipeId?: string;
+}
+
+export interface RecipeIngredient {
+  item: string;
+  quantity: string;
+  unit?: string;
+  notes?: string;
+}
+
+export interface SavedRecipe {
+  id: string;
+  userId: string;
+  name: string;
+  category: RecipeCategory;
+  servings: number;
+  prepTimeMinutes?: number;
+  cookTimeMinutes?: number;
+  ingredients: RecipeIngredient[];
+  instructions: string[];
+  athleteAdaptation?: string;
+  nutritionNotes?: string;
+  isGoodPreWorkout: boolean;
+  isGoodPostWorkout: boolean;
+  isCarbHeavy: boolean;
+  isProteinHeavy: boolean;
+  kidAdaptation?: string;
+  kidFriendlyRating?: number;
+  tags: string[];
+  sourceUrl?: string;
+  sourceNotes?: string;
+  timesMade: number;
+  lastMadeDate?: Date;
+  isFavorite: boolean;
+  metadata: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CreateSavedRecipe {
+  name: string;
+  category: RecipeCategory;
+  servings?: number;
+  prepTimeMinutes?: number;
+  cookTimeMinutes?: number;
+  ingredients: RecipeIngredient[];
+  instructions: string[];
+  athleteAdaptation?: string;
+  nutritionNotes?: string;
+  isGoodPreWorkout?: boolean;
+  isGoodPostWorkout?: boolean;
+  isCarbHeavy?: boolean;
+  isProteinHeavy?: boolean;
+  kidAdaptation?: string;
+  kidFriendlyRating?: number;
+  tags?: string[];
+  sourceUrl?: string;
+  sourceNotes?: string;
+}
+
+export interface GroceryList {
+  id: string;
+  userId: string;
+  mealPlanId?: string;
+  forWeekOf: Date;
+  name: string;
+  status: 'draft' | 'active' | 'shopping' | 'completed';
+  primaryStore?: string;
+  estimatedTotalLow?: number;
+  estimatedTotalHigh?: number;
+  actualTotal?: number;
+  itemsTotal: number;
+  itemsPurchased: number;
+  shoppingStartedAt?: Date;
+  shoppingCompletedAt?: Date;
+  notes?: string;
+  metadata: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CreateGroceryList {
+  mealPlanId?: string;
+  forWeekOf: Date;
+  name?: string;
+  primaryStore?: string;
+  estimatedTotalLow?: number;
+  estimatedTotalHigh?: number;
+}
+
+export interface GroceryListItem {
+  id: string;
+  groceryListId: string;
+  itemName: string;
+  quantity?: string;
+  section: GrocerySection;
+  forMeals?: string[];
+  isAthleteSpecific: boolean;
+  notes?: string;
+  isPurchased: boolean;
+  purchasedAt?: Date;
+  actualPrice?: number;
+  substitutedWith?: string;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CreateGroceryListItem {
+  groceryListId: string;
+  itemName: string;
+  quantity?: string;
+  section: GrocerySection;
+  forMeals?: string[];
+  isAthleteSpecific?: boolean;
+  notes?: string;
+  sortOrder?: number;
+}
+
+export interface BatchCookingPlan {
+  id: string;
+  userId: string;
+  mealPlanId?: string;
+  plannedDate: Date;
+  totalTimeMinutes?: number;
+  status: 'planned' | 'in_progress' | 'completed' | 'skipped';
+  items: BatchCookingItem[];
+  additionalShopping?: string[];
+  startedAt?: Date;
+  completedAt?: Date;
+  actualDurationMinutes?: number;
+  completionNotes?: string;
+  metadata: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface BatchCookingItem {
+  item: string;
+  quantity: string;
+  prepOrder: number;
+  activeTimeMinutes: number;
+  storage: string;
+  usedFor: string[];
+  keepsDays: number;
+}
+
+export interface CreateBatchCookingPlan {
+  mealPlanId?: string;
+  plannedDate: Date;
+  totalTimeMinutes?: number;
+  items: BatchCookingItem[];
+  additionalShopping?: string[];
 }

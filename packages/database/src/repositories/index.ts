@@ -10,3 +10,12 @@ export {
   WhiteboardRepository,
   WhiteboardReactionRepository,
 } from './whiteboard.repository.js';
+
+// Meal planning
+export {
+  MealPlanRepository,
+  FamilyMemberRepository,
+  RecipeRepository,
+  GroceryListRepository,
+  MealPreferencesRepository,
+} from './meal-plan.repository.js';
