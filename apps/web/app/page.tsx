@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { getSupabase } from '@/lib/supabase';
 import { getEnv } from '@/lib/env';
 import {
@@ -8,6 +10,7 @@ import {
 } from '@lifeos/database';
 import { HealthModule } from '@/components/dashboard/HealthModule';
 import { TrainingModule } from '@/components/dashboard/TrainingModule';
+import { NutritionModule } from '@/components/dashboard/NutritionModule';
 import { PlanningModule } from '@/components/dashboard/PlanningModule';
 
 // Calculate weekly mileage from recent workouts
@@ -119,6 +122,16 @@ export default async function Dashboard() {
               weeklyMileage={weeklyMileage}
               upcomingWorkout={upcomingWorkouts[0] || null}
               totalWeeklyMiles={totalWeeklyMiles}
+            />
+          </section>
+
+          {/* Nutrition Module */}
+          <section>
+            <NutritionModule
+              todayCalories={0}
+              targetCalories={2100 + totalWeeklyMiles / 7 * 100}
+              activeCalories={healthData?.activeCalories || 0}
+              nextWorkoutDistance={upcomingWorkouts[0]?.prescribedDistanceMiles}
             />
           </section>
 

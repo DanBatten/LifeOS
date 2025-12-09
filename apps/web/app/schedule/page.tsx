@@ -1,6 +1,9 @@
+export const dynamic = 'force-dynamic';
+
 import { getSupabase } from '@/lib/supabase';
 import { getEnv } from '@/lib/env';
 import { WorkoutRepository } from '@lifeos/database';
+import { generateRunPlan, type RunPlan, type RunningPreferences } from '@lifeos/skills';
 import { ScheduleView } from './ScheduleView';
 
 // Get start of current week (Monday)
@@ -32,6 +35,17 @@ interface TrainingWeekSummary {
   actualWorkoutsCompleted: number | null;
 }
 
+// Helper to check if a date is today
+function isToday(dateStr: string): boolean {
+  const today = new Date();
+  const date = new Date(dateStr);
+  return (
+    date.getFullYear() === today.getFullYear() &&
+    date.getMonth() === today.getMonth() &&
+    date.getDate() === today.getDate()
+  );
+}
+
 export default async function SchedulePage() {
   const supabase = getSupabase();
   const env = getEnv();
@@ -45,6 +59,52 @@ export default async function SchedulePage() {
   const endDate = addDays(weekStart, 28); // 4 weeks from start of this week
 
   const workouts = await workoutRepo.findByDateRange(userId, startDate, endDate);
+
+  // Fetch user's running preferences for run plan generation
+  const { data: userData } = await supabase
+    .from('users')
+    .select('preferences')
+    .eq('id', userId)
+    .single();
+
+  // Type assertion for the user data
+  const userPrefs = userData as { preferences?: { running?: RunningPreferences } } | null;
+  const runningPrefs = userPrefs?.preferences?.running;
+
+  // Find the next planned workout to generate a run plan for
+  // Sort by scheduled date to get the earliest planned workout
+  const sortedWorkouts = [...workouts].sort((a, b) => {
+    const dateA = a.scheduledDate ? new Date(a.scheduledDate).getTime() : 0;
+    const dateB = b.scheduledDate ? new Date(b.scheduledDate).getTime() : 0;
+    return dateA - dateB;
+  });
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const nextPlannedWorkout = sortedWorkouts.find(
+    w => w.scheduledDate &&
+         new Date(w.scheduledDate) >= todayStart &&
+         w.status === 'planned'
+  );
+
+  // Generate run plan for the next workout if we have preferences
+  let nextWorkoutRunPlan: RunPlan | null = null;
+  let nextWorkoutId: string | null = null;
+  if (nextPlannedWorkout && runningPrefs) {
+    nextWorkoutId = nextPlannedWorkout.id;
+    nextWorkoutRunPlan = generateRunPlan(
+      {
+        workoutType: nextPlannedWorkout.workoutType,
+        distanceMiles: nextPlannedWorkout.prescribedDistanceMiles || null,
+        durationMinutes: nextPlannedWorkout.plannedDurationMinutes || null,
+        prescribedDescription: nextPlannedWorkout.prescribedDescription || null,
+        isRace: nextPlannedWorkout.prescribedDescription?.toLowerCase().includes('race') || false,
+        isKeyWorkout: ['interval', 'tempo', 'threshold'].includes(nextPlannedWorkout.workoutType),
+      },
+      runningPrefs
+    );
+  }
 
   // Fetch training weeks with summaries
   const { data: trainingWeeksData } = await supabase
@@ -67,15 +127,40 @@ export default async function SchedulePage() {
     actual_workouts_completed: number | null;
   }>;
 
-  // Serialize dates for client component
-  const serializedWorkouts = workouts.map(w => ({
-    ...w,
-    scheduledDate: w.scheduledDate ? (typeof w.scheduledDate === 'string' ? w.scheduledDate : w.scheduledDate.toISOString()) : null,
-    startedAt: w.startedAt ? (typeof w.startedAt === 'string' ? w.startedAt : w.startedAt.toISOString()) : null,
-    completedAt: w.completedAt ? (typeof w.completedAt === 'string' ? w.completedAt : w.completedAt.toISOString()) : null,
-    createdAt: typeof w.createdAt === 'string' ? w.createdAt : w.createdAt.toISOString(),
-    updatedAt: typeof w.updatedAt === 'string' ? w.updatedAt : w.updatedAt.toISOString(),
-  }));
+  // Helper to extract distance from various metadata locations
+  function extractDistance(metadata: Record<string, unknown> | undefined): number | null {
+    if (!metadata) return null;
+    if (metadata.actual_distance_miles) return metadata.actual_distance_miles as number;
+    if (metadata.distanceMiles) return metadata.distanceMiles as number;
+    if (metadata.distanceMeters) return (metadata.distanceMeters as number) / 1609.34;
+    const garmin = metadata.garmin as Record<string, unknown> | undefined;
+    if (garmin?.distance) return (garmin.distance as number) / 1609.34;
+    return null;
+  }
+
+  // Helper to extract pace from metadata
+  function extractPace(metadata: Record<string, unknown> | undefined): string | null {
+    if (!metadata) return null;
+    if (metadata.actual_pace) return metadata.actual_pace as string;
+    if (metadata.avgPace) return metadata.avgPace as string;
+    return null;
+  }
+
+  // Serialize dates for client component and include computed fields
+  const serializedWorkouts = workouts.map(w => {
+    const metadata = (w as unknown as { metadata?: Record<string, unknown> }).metadata;
+    return {
+      ...w,
+      scheduledDate: w.scheduledDate ? (typeof w.scheduledDate === 'string' ? w.scheduledDate : w.scheduledDate.toISOString()) : null,
+      startedAt: w.startedAt ? (typeof w.startedAt === 'string' ? w.startedAt : w.startedAt.toISOString()) : null,
+      completedAt: w.completedAt ? (typeof w.completedAt === 'string' ? w.completedAt : w.completedAt.toISOString()) : null,
+      createdAt: typeof w.createdAt === 'string' ? w.createdAt : w.createdAt.toISOString(),
+      updatedAt: typeof w.updatedAt === 'string' ? w.updatedAt : w.updatedAt.toISOString(),
+      // Add extracted metadata fields for display
+      actualDistanceMiles: extractDistance(metadata),
+      actualPace: extractPace(metadata),
+    };
+  });
 
   // Serialize training weeks
   const serializedWeeks: TrainingWeekSummary[] = (trainingWeeks || []).map(tw => ({
@@ -90,5 +175,12 @@ export default async function SchedulePage() {
     actualWorkoutsCompleted: tw.actual_workouts_completed,
   }));
 
-  return <ScheduleView workouts={serializedWorkouts} trainingWeeks={serializedWeeks} />;
+  return (
+    <ScheduleView
+      workouts={serializedWorkouts}
+      trainingWeeks={serializedWeeks}
+      nextWorkoutRunPlan={nextWorkoutRunPlan}
+      nextWorkoutId={nextWorkoutId}
+    />
+  );
 }
