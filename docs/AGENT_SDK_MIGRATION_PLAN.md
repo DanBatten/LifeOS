@@ -1,70 +1,18 @@
-# Anthropic Agent SDK Migration Analysis & Plan
+# Agent Architecture & Future SDK Migration Plan
 
 ## Executive Summary
 
-This document analyzes the feasibility and approach for migrating LifeOS agents to use the Anthropic Agent SDK (`@anthropic-ai/claude-agent-sdk`). After thorough research, **I recommend a hybrid approach**: adopt the Agent SDK as the execution harness while preserving your domain-specific architecture patterns.
+This document outlines the LifeOS agent architecture and documents our evaluation of the Anthropic Agent SDK for future integration.
 
-**Verdict: YES, adopt the Agent SDK** - but thoughtfully, not as a wholesale replacement.
+**Current Status:** Using direct LLM calls via `@lifeos/llm` for server-side agents. The Anthropic Agent SDK was evaluated but is designed for CLI tools (spawns subprocesses), not server/API use.
 
-## Implementation Status
-
-**Phase 1 & 2 Complete!** Full SDK agent integration implemented:
-
-| Component | Status | Location |
-|-----------|--------|----------|
-| SDK Installation | ✅ Done | `@lifeos/agents` package |
-| SdkAgent base class | ✅ Done | `packages/agents/src/sdk/SdkAgent.ts` |
-| MCP Tool Adapter | ✅ Done | `packages/agents/src/sdk/McpToolAdapter.ts` |
-| SdkTrainingCoachAgent | ✅ Done | `packages/agents/src/sdk/SdkTrainingCoachAgent.ts` |
-| SdkHealthAgent | ✅ Done | `packages/agents/src/sdk/SdkHealthAgent.ts` |
-| ChatFlow Integration | ✅ Done | `packages/workflows/src/chat-flow.workflow.ts` |
-| Marathon Training Skills | ✅ Done | `.claude/skills/marathon-training/` |
-| Test script | ✅ Done | `scripts/test-sdk-agent.ts` |
-
-### Quick Start - Direct Agent Use
-
-```typescript
-import { SdkTrainingCoachAgent, SdkHealthAgent } from '@lifeos/agents';
-
-// Training Coach
-const coach = new SdkTrainingCoachAgent();
-const output = await coach.execute(context);
-console.log(`Cost: $${output.totalCostUsd}`);
-
-// Health Agent
-const health = new SdkHealthAgent();
-const healthOutput = await health.execute(context);
-```
-
-### Quick Start - Via ChatFlow
-
-```typescript
-import { runChatFlow } from '@lifeos/workflows';
-
-// Enable SDK mode for enhanced capabilities
-const result = await runChatFlow(supabase, llm, userId, message, tz, {
-  useSdk: true,           // Use SDK agents
-  resumeSession: 'xxx',   // Optional: resume previous session
-});
-
-console.log(result.response);
-console.log(`Cost: $${result.costUsd}`);
-console.log(`Session: ${result.sessionId}`);  // For resumption
-```
-
-### Marathon Training Skills
-
-Domain knowledge available at `.claude/skills/marathon-training/`:
-- `SKILL.md` - Training phases, workout types, metrics
-- `PACING.md` - Pace zones by goal time
-- `RECOVERY.md` - HRV, RHR, sleep analysis
-- `RACE_DAY.md` - Race execution strategy
+**Key Insight:** The Agent SDK is excellent for CLI tools like Claude Code, but for HTTP APIs we use the standard Anthropic SDK directly.
 
 ---
 
 ## Current LifeOS Architecture
 
-### What You Have
+### Layer Overview
 
 ```
 Workflows → Agents → Skills → Tools
@@ -77,7 +25,7 @@ Workflows → Agents → Skills → Tools
 | **Skills** | `packages/skills/` | Deterministic data operations (SyncGarminMetrics, LoadAgentContext) |
 | **Tools** | Within agents | Atomic operations (DB queries, modifications) |
 
-### Key Patterns Worth Preserving
+### Key Patterns
 
 1. **"Agents Don't Fetch" Principle** - Skills pre-load context, agents just interpret
 2. **Context Embedding** - All data passed via `AgentContext`, not fetched via tools
@@ -87,383 +35,127 @@ Workflows → Agents → Skills → Tools
 
 ---
 
-## Anthropic Agent SDK Overview
+## Marathon Training Skills
 
-### What the SDK Provides
+Domain knowledge for the Training Coach is stored in `.claude/skills/marathon-training/`:
 
-The Agent SDK is the harness that powers Claude Code, offering:
+| File | Purpose |
+|------|---------|
+| `SKILL.md` | Training phases, workout types, key metrics |
+| `PACING.md` | Pace zone calculations by goal time |
+| `RECOVERY.md` | HRV, RHR, sleep analysis guidelines |
+| `RACE_DAY.md` | Race execution strategy and troubleshooting |
 
-| Feature | Description | LifeOS Benefit |
-|---------|-------------|----------------|
-| **Context Management** | Automatic compaction when approaching limits | Unlimited conversation length |
-| **Rich Tool Ecosystem** | Built-in Read, Write, Bash, Grep, Glob, WebFetch | Don't reinvent file/search tools |
-| **Permission System** | Fine-grained `canUseTool` callbacks | Control what agents can modify |
-| **Session Management** | Resume, fork sessions | Persistent coaching conversations |
-| **Streaming** | Real-time token streaming | Better UX for long responses |
-| **MCP Integration** | Model Context Protocol servers | Extensible external integrations |
-| **Hooks** | PreToolUse, PostToolUse, etc. | Audit, validate, intercept |
-
-### SDK Architecture
-
-```typescript
-import { query, tool, createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
-
-// Core pattern: query() returns an async generator of messages
-for await (const message of query({
-  prompt: "Help me plan this week's training",
-  options: {
-    systemPrompt: "You are an elite running coach...",
-    model: "claude-opus-4-5-20250929",
-    allowedTools: ["Read", "Write", "Bash", "mcp__garmin__get_daily_summary"],
-    mcpServers: {
-      garmin: { type: 'stdio', command: 'uvx', args: ['garmin-mcp'] }
-    },
-    cwd: "/path/to/project",
-    permissionMode: "acceptEdits",
-    hooks: {
-      PreToolUse: [{ hooks: [auditToolUse] }]
-    }
-  }
-})) {
-  if (message.type === 'assistant') {
-    // Stream to user
-  } else if (message.type === 'result') {
-    // Final result with usage stats
-  }
-}
-```
-
-### SDK Skills vs LifeOS Skills
-
-**Important distinction**: These are different concepts!
-
-| Aspect | Anthropic SDK Skills | LifeOS Skills |
-|--------|---------------------|---------------|
-| **Definition** | `SKILL.md` files in `.claude/skills/` | TypeScript functions in `packages/skills/` |
-| **Execution** | LLM autonomously invokes based on description | Workflow explicitly calls |
-| **Purpose** | Extend Claude's capabilities with domain knowledge | Deterministic data operations |
-| **Contains** | Instructions, examples, scripts | Business logic, DB operations |
-
-**Recommendation**: Rename LifeOS "skills" to "operations" or "data-services" to avoid confusion.
+These skills provide structured domain knowledge that can be referenced by agents or used for prompt construction.
 
 ---
 
-## Migration Strategy
+## Agent SDK Evaluation (December 2025)
 
-### Phase 1: SDK as Execution Harness (Recommended First Step)
+### What We Learned
 
-Replace `BaseAgent` execution loop with SDK's `query()` function while keeping your agent structure.
+The Anthropic Agent SDK (`@anthropic-ai/claude-agent-sdk`) is designed for **CLI applications** like Claude Code:
 
-**Current Pattern:**
+| Feature | SDK Approach | Our Needs |
+|---------|--------------|-----------|
+| Execution | Spawns subprocess | HTTP API handler |
+| Environment | Local CLI | Serverless/Next.js |
+| Permissions | Interactive prompts | Programmatic |
+| Tools | MCP servers (stdio) | Direct function calls |
+
+### Why We Didn't Adopt It (For Now)
+
+1. **Subprocess model** - The SDK spawns a Claude Code process, which fails in serverless environments
+2. **Designed for CLI** - Permission prompts, interactive mode not suitable for APIs
+3. **Our agents already work** - Direct LLM calls via `@lifeos/llm` are fast and reliable
+
+### When to Revisit
+
+Consider the Agent SDK if:
+- Building a CLI tool for local use
+- Anthropic releases a server-compatible version
+- Need advanced features like session persistence across deployments
+
+---
+
+## Current Agent Implementation
+
+### BaseAgent Pattern
+
 ```typescript
 // packages/agents/src/base/BaseAgent.ts
-class BaseAgent {
-  async execute(context: AgentContext): Promise<AgentOutput> {
-    const systemPrompt = this.buildSystemPrompt(context);
-    const userPrompt = this.buildUserPrompt(context);
-
-    let response = await this.llmClient.chat({
-      systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
-      tools: this.toolDefinitions,
-      // ...
-    });
-
-    // Manual tool loop
-    while (response.hasToolCalls && iterations < MAX_LOOPS) {
-      // Execute tools, continue conversation...
-    }
-
-    return output;
-  }
-}
-```
-
-**New Pattern with SDK:**
-```typescript
-// packages/agents/src/base/SdkAgent.ts
-import { query, SDKMessage, SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
-
-abstract class SdkAgent {
+abstract class BaseAgent {
+  abstract registerTools(): AgentTool[];
   abstract buildSystemPrompt(context: AgentContext): string;
   abstract buildUserPrompt(context: AgentContext): string;
-  abstract getMcpServers(): Record<string, McpServerConfig>;
-  abstract getAllowedTools(): string[];
 
   async execute(context: AgentContext): Promise<AgentOutput> {
-    const messages: SDKMessage[] = [];
-
-    for await (const message of query({
-      prompt: this.buildUserPrompt(context),
-      options: {
-        systemPrompt: this.buildSystemPrompt(context),
-        model: this.config.model,
-        allowedTools: this.getAllowedTools(),
-        mcpServers: this.getMcpServers(),
-        maxTurns: 10,
-        cwd: process.cwd(),
-        // Custom tool permission handler
-        canUseTool: async (toolName, input) => {
-          return this.validateToolUse(toolName, input, context);
-        },
-        hooks: {
-          PostToolUse: [{
-            hooks: [async (input) => this.collectWhiteboardEntry(input)]
-          }]
-        }
-      }
-    })) {
-      messages.push(message);
-
-      if (message.type === 'result' && message.subtype === 'success') {
-        return this.buildOutput(message, messages);
-      }
-    }
+    // 1. Build prompts
+    // 2. Send to LLM with tools
+    // 3. Execute tool loop if needed
+    // 4. Return response + collected whiteboard entries
   }
 }
 ```
 
-**Benefits:**
-- Automatic context compaction (no more MAX_TOOL_LOOPS worries)
-- Built-in streaming support
-- Session persistence for multi-turn coaching
-- Better error handling and retries
-- Token usage tracking built-in
+### Available Agents
 
-### Phase 2: Garmin MCP Server
+| Agent | Purpose | Model |
+|-------|---------|-------|
+| `HealthAgent` | Health metrics, recovery analysis | Claude Sonnet 4.5 |
+| `TrainingCoachAgent` | Workout analysis, plan modifications | Claude Sonnet 4.5 |
 
-Replace your Python subprocess Garmin integration with a proper MCP server.
+### Tool Definition
 
-**Current:**
 ```typescript
-// Slow Python subprocess calls
-const garminClient = new GarminMCPClient();
-const stats = await garminClient.getDailySummary(date); // 5-10s per call
-```
-
-**New:**
-```typescript
-// packages/integrations/garmin-mcp/
-// Create an MCP server that wraps Garmin API
-
-// In agent configuration:
-mcpServers: {
-  garmin: {
-    type: 'stdio',
-    command: 'node',
-    args: ['./packages/integrations/garmin-mcp/dist/server.js'],
-    env: {
-      GARMIN_EMAIL: process.env.GARMIN_EMAIL,
-      GARMIN_PASSWORD: process.env.GARMIN_PASSWORD
-    }
-  }
+interface AgentTool {
+  name: string;
+  description: string;
+  parameters: {
+    type: 'object';
+    properties: Record<string, unknown>;
+    required?: string[];
+  };
+  execute: (args: Record<string, unknown>, context: AgentContext) => Promise<unknown>;
 }
 ```
 
-**Or use SDK MCP server (in-process):**
-```typescript
-import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
-import { z } from "zod";
+---
 
-const garminServer = createSdkMcpServer({
-  name: "garmin",
-  version: "1.0.0",
-  tools: [
-    tool(
-      "get_daily_summary",
-      "Get health metrics for a specific date",
-      { date: z.string().describe("ISO date string") },
-      async ({ date }) => {
-        const data = await garminApi.getDailySummary(date);
-        return { content: [{ type: "text", text: JSON.stringify(data) }] };
-      }
-    ),
-    tool(
-      "get_activities",
-      "Get recent activities",
-      { limit: z.number().optional() },
-      async ({ limit = 10 }) => {
-        const activities = await garminApi.getActivities(limit);
-        return { content: [{ type: "text", text: JSON.stringify(activities) }] };
-      }
-    )
-  ]
+## Future Considerations
+
+### If We Need CLI Tools
+
+If building local CLI tools, the Agent SDK would provide:
+- Automatic context compaction
+- Session persistence
+- MCP server integration
+- Cost tracking
+
+### Alternative: Direct Anthropic SDK
+
+For server use, we use the Anthropic SDK directly:
+
+```typescript
+import Anthropic from '@anthropic-ai/sdk';
+
+const client = new Anthropic();
+const response = await client.messages.create({
+  model: 'claude-sonnet-4-5-20250929',
+  messages: [...],
+  tools: [...],
 });
-
-// Use in query
-mcpServers: {
-  garmin: garminServer
-}
 ```
 
-### Phase 3: Adopt SDK Skills for Domain Knowledge
-
-Create `.claude/skills/` for training-specific knowledge that Claude can autonomously invoke.
-
-**Example: Marathon Training Skill**
-```markdown
-<!-- .claude/skills/marathon-training/SKILL.md -->
----
-name: marathon-training
-description: Expert marathon training knowledge including periodization, workout types,
-  pacing strategies, recovery protocols, and race preparation. Use when discussing
-  marathon training, running workouts, race pacing, or training plan modifications.
----
-
-# Marathon Training Knowledge Base
-
-## Training Phases
-
-### Base Building (Weeks 1-4)
-- Focus: Aerobic development, injury prevention
-- Volume: 70-80% of peak mileage
-- Intensity: 80% easy, 20% moderate
-- Key workouts: Long runs at conversational pace
-
-### Build Phase (Weeks 5-12)
-- Focus: Lactate threshold, VO2max
-- Volume: Building to peak
-- Key workouts:
-  - Tempo runs: 20-40 min at marathon pace + 20-30 sec/mile
-  - Intervals: 6-8 x 800m at 5K pace
-  - Long runs: Progressive, with MP segments
-
-### Peak Phase (Weeks 13-16)
-- Focus: Race-specific fitness
-- Volume: Peak then taper
-- Key workouts:
-  - Race-pace long runs (14-16 mi with 8-10 at MP)
-  - Tune-up races (10K-half marathon)
-
-### Taper (Final 2-3 weeks)
-- Volume reduction: 40-60%
-- Maintain intensity, reduce duration
-- Focus on rest and nutrition
-
-## Pace Calculations
-
-See [PACING.md](PACING.md) for detailed pace zone calculations.
-
-## Recovery Indicators
-
-See [RECOVERY.md](RECOVERY.md) for HRV, RHR, and sleep analysis guidelines.
-```
-
-**Benefits:**
-- Claude automatically loads marathon knowledge when relevant
-- Progressive disclosure (only loads PACING.md when discussing pacing)
-- Versioned and shareable training methodology
-
-### Phase 4: Implement Hooks for System Integration
-
-Use SDK hooks to integrate with your whiteboard and logging systems.
-
-```typescript
-const hooks = {
-  PreToolUse: [{
-    matcher: "mcp__garmin__*",
-    hooks: [async (input) => {
-      // Log Garmin API calls
-      await logApiCall('garmin', input.tool_name, input.tool_input);
-      return { continue: true };
-    }]
-  }],
-
-  PostToolUse: [{
-    hooks: [async (input) => {
-      // Collect whiteboard entries from tool results
-      if (isWhiteboardEntry(input.tool_response)) {
-        await saveWhiteboardEntry(input.tool_response);
-      }
-      return { continue: true };
-    }]
-  }],
-
-  Notification: [{
-    hooks: [async (input) => {
-      // Send notifications to user
-      await sendPushNotification(input.message);
-      return { continue: true };
-    }]
-  }]
-};
-```
+This is what `@lifeos/llm` wraps with multi-provider support.
 
 ---
 
-## Implementation Roadmap
+## Summary
 
-### Step 1: Install SDK and Create Adapter (1-2 days)
-
-```bash
-npm install @anthropic-ai/claude-agent-sdk
-```
-
-Create `packages/agents/src/base/SdkAdapter.ts` that wraps SDK's `query()` with your existing interface.
-
-### Step 2: Migrate TrainingCoachAgent (2-3 days)
-
-Start with the most complex agent to validate the approach:
-- Convert tool definitions to MCP format
-- Implement custom `canUseTool` for modification validation
-- Add hooks for whiteboard collection
-- Test all task types (workout_analysis, readiness_check, etc.)
-
-### Step 3: Migrate HealthAgent (1 day)
-
-Simpler agent, mostly read-only operations.
-
-### Step 4: Update Workflows (1-2 days)
-
-- Modify ChatFlow to use SDK streaming
-- Add session persistence for multi-turn conversations
-- Implement fast-path optimization (tool-less queries)
-
-### Step 5: Create SDK Skills (2-3 days)
-
-- Marathon training knowledge base
-- Recovery protocols
-- Nutrition guidelines
-
-### Step 6: MCP Server for Garmin (2-3 days)
-
-- Create proper MCP server (either stdio or in-process)
-- Remove Python subprocess dependency
-- Add caching layer
-
----
-
-## Risks and Mitigations
-
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| SDK breaking changes | High | Pin version, wrap in adapter layer |
-| Performance regression | Medium | Benchmark before/after, keep fast-path logic |
-| Lost "agents don't fetch" pattern | High | Enforce via `canUseTool` + pre-loaded context |
-| Complexity increase | Medium | Gradual migration, maintain existing tests |
-
----
-
-## What NOT to Change
-
-1. **AgentContext pre-loading** - Keep this pattern, it's excellent
-2. **Workflow orchestration** - SDK doesn't replace this
-3. **Database repositories** - SDK doesn't handle persistence
-4. **Whiteboard system** - Adapt via hooks, but keep the concept
-5. **Multi-task agent design** - SDK supports this via prompt variations
-
----
-
-## Conclusion
-
-The Anthropic Agent SDK is a strong fit for LifeOS because:
-
-1. **Production-ready infrastructure** - Context management, streaming, error handling
-2. **MCP ecosystem** - Better Garmin integration path
-3. **Skills for domain knowledge** - Natural fit for training methodology
-4. **Hooks for customization** - Maintains your whiteboard pattern
-5. **Session management** - Enables persistent coaching conversations
-
-**Start with Phase 1** (SDK as execution harness) to validate the approach with minimal risk, then proceed through the phases as confidence grows.
-
-The migration preserves your excellent architectural decisions (context pre-loading, fast-path detection, multi-task agents) while gaining significant infrastructure benefits.
+| Aspect | Current Approach | Future Option |
+|--------|------------------|---------------|
+| Server APIs | Direct LLM via `@lifeos/llm` | Keep as-is |
+| CLI Tools | N/A | Agent SDK |
+| Domain Knowledge | `.claude/skills/` markdown files | Keep as-is |
+| Agent Pattern | `BaseAgent` + tools | Keep as-is |
