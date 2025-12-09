@@ -46,7 +46,11 @@ export interface ChatFlowResult {
 
 export interface ChatFlowOptions {
   conversationHistory?: ConversationMessage[];
-  /** Use SDK-based agents for enhanced capabilities (default: true) */
+  /**
+   * Use SDK-based agents (default: false)
+   * Note: SDK agents spawn a subprocess and are designed for CLI use.
+   * For server/API use, keep this false to use direct LLM calls.
+   */
   useSdk?: boolean;
   /** Session ID to resume (SDK mode only) */
   resumeSession?: string;
@@ -83,8 +87,8 @@ export async function runChatFlow(
   const context = await loadAgentContext(supabase, userId, timezone);
 
   // 3. AGENT: Get response (with tools for modifications)
-  // Use SDK agent by default (opt-out with useSdk: false)
-  const useSdkAgent = options.useSdk !== false;
+  // SDK agents are opt-in (they spawn subprocesses, not suitable for server use)
+  const useSdkAgent = options.useSdk === true;
 
   let response: {
     content: string;

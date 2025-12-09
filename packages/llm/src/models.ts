@@ -31,7 +31,7 @@ export interface ModelDefinition {
 export const ANTHROPIC_MODELS: Record<string, ModelDefinition> = {
   // Flagship - Peak intelligence
   'claude-opus-4-5': {
-    id: 'claude-opus-4-5-20251201',
+    id: 'claude-opus-4-5-20251101',
     provider: 'anthropic',
     name: 'Claude Opus 4.5',
     description: 'Strongest model for AI agents, multi-step reasoning, adaptive decision-making, enterprise workflows',
@@ -59,7 +59,7 @@ export const ANTHROPIC_MODELS: Record<string, ModelDefinition> = {
 
   // Balanced - Best value for most tasks
   'claude-sonnet-4-5': {
-    id: 'claude-sonnet-4-5-20251201',
+    id: 'claude-sonnet-4-5-20250929',
     provider: 'anthropic',
     name: 'Claude Sonnet 4.5',
     description: 'World-leading coding, agent building, computer use, math/reasoning with extended thinking',
@@ -87,7 +87,7 @@ export const ANTHROPIC_MODELS: Record<string, ModelDefinition> = {
 
   // Fast - Speed and efficiency
   'claude-haiku-4-5': {
-    id: 'claude-haiku-4-5-20251201',
+    id: 'claude-3-5-haiku-20241022',
     provider: 'anthropic',
     name: 'Claude Haiku 4.5',
     description: 'Fastest for efficiency, quick general tasks, free-tier accessible',
