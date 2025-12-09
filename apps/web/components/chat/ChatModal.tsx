@@ -14,6 +14,7 @@ interface ChatModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialMessage?: string;
+  context?: 'default' | 'post-run';
 }
 
 const LOADING_MESSAGES = [
@@ -37,7 +38,7 @@ const getAgentLabel = (agentId?: string) => {
   }
 };
 
-export function ChatModal({ isOpen, onClose, initialMessage }: ChatModalProps) {
+export function ChatModal({ isOpen, onClose, initialMessage, context = 'default' }: ChatModalProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -102,7 +103,7 @@ export function ChatModal({ isOpen, onClose, initialMessage }: ChatModalProps) {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, sessionId }),
+        body: JSON.stringify({ message: text, sessionId, context }),
       });
 
       const data = await response.json();
@@ -165,7 +166,9 @@ export function ChatModal({ isOpen, onClose, initialMessage }: ChatModalProps) {
             </svg>
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">LifeOS Chat</h2>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+              {context === 'post-run' ? 'Post-Run Check-in' : 'LifeOS Chat'}
+            </h2>
             {sessionId && (
               <span className="text-xs text-gray-500">Session {sessionId.slice(0, 8)}</span>
             )}
@@ -189,21 +192,34 @@ export function ChatModal({ isOpen, onClose, initialMessage }: ChatModalProps) {
             <div className="text-center py-16">
               <div className="w-16 h-16 rounded-full bg-[#D4E157] mx-auto mb-6 flex items-center justify-center">
                 <svg className="w-8 h-8 text-gray-900" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                  {context === 'post-run' ? (
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  ) : (
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                  )}
                 </svg>
               </div>
               <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                How can I help?
+                {context === 'post-run' ? 'How was your run?' : 'How can I help?'}
               </h3>
               <p className="text-gray-500 mb-8 max-w-md mx-auto">
-                Ask about your health metrics, training plan, recovery status, or get personalized recommendations.
+                {context === 'post-run'
+                  ? "Tell me about your run and I'll sync your Garmin data, analyze your performance, and update your training notes."
+                  : 'Ask about your health metrics, training plan, recovery status, or get personalized recommendations.'}
               </p>
               <div className="flex flex-wrap justify-center gap-2">
-                {[
-                  "How's my recovery today?",
-                  "Should I run today?",
-                  "What's my training load?",
-                ].map((suggestion) => (
+                {(context === 'post-run'
+                  ? [
+                      "Just finished my run!",
+                      "Felt great today",
+                      "Struggled with today's workout",
+                    ]
+                  : [
+                      "How's my recovery today?",
+                      "Should I run today?",
+                      "What's my training load?",
+                    ]
+                ).map((suggestion) => (
                   <button
                     key={suggestion}
                     onClick={() => sendMessage(suggestion)}

@@ -1,12 +1,24 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import { usePathname } from 'next/navigation';
 import { ChatModal } from './ChatModal';
 
-export function FloatingChatBar() {
+interface FloatingChatBarProps {
+  placeholder?: string;
+  context?: 'default' | 'post-run';
+}
+
+export function FloatingChatBar({ placeholder, context: contextProp }: FloatingChatBarProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [pendingMessage, setPendingMessage] = useState<string | undefined>();
   const inputRef = useRef<HTMLInputElement>(null);
+  const pathname = usePathname();
+
+  // Determine context and placeholder based on current page
+  const isSchedulePage = pathname === '/schedule';
+  const context = contextProp || (isSchedulePage ? 'post-run' : 'default');
+  const placeholderText = placeholder || (isSchedulePage ? "How was your run today?" : "Ask anything...");
 
   const handleFocus = () => {
     setIsModalOpen(true);
@@ -79,7 +91,7 @@ export function FloatingChatBar() {
             <input
               ref={inputRef}
               type="text"
-              placeholder="Ask anything..."
+              placeholder={placeholderText}
               className="
                 flex-1 bg-transparent text-white
                 placeholder-gray-400
@@ -123,6 +135,7 @@ export function FloatingChatBar() {
         isOpen={isModalOpen}
         onClose={handleModalClose}
         initialMessage={pendingMessage}
+        context={context}
       />
     </>
   );

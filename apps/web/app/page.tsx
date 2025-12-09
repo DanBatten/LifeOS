@@ -9,7 +9,6 @@ import {
 import { HealthModule } from '@/components/dashboard/HealthModule';
 import { TrainingModule } from '@/components/dashboard/TrainingModule';
 import { PlanningModule } from '@/components/dashboard/PlanningModule';
-import { FloatingChatBar } from '@/components/chat/FloatingChatBar';
 
 // Calculate weekly mileage from recent workouts
 function calculateWeeklyMileage(workouts: { scheduledDate?: Date; prescribedDistanceMiles?: number; metadata?: Record<string, unknown> }[]) {
@@ -133,9 +132,6 @@ export default async function Dashboard() {
           </section>
         </div>
       </div>
-
-      {/* Floating Chat Bar */}
-      <FloatingChatBar />
     </main>
   );
 }

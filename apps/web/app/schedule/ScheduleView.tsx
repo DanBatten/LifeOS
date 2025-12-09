@@ -1,9 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { LogRunModal, LogRunData } from './LogRunModal';
+import { useEffect, useRef } from 'react';
 
 interface SerializedWorkout {
   id: string;
@@ -174,25 +172,7 @@ function WorkoutCard({ workout, isCurrentDay }: WorkoutCardProps) {
 
 export function ScheduleView({ workouts }: ScheduleViewProps) {
   const todayRef = useRef<HTMLDivElement>(null);
-  const router = useRouter();
-  const [isLogModalOpen, setIsLogModalOpen] = useState(false);
   const workoutsByDate = groupWorkoutsByDate(workouts);
-
-  const handleLogRun = async (data: LogRunData) => {
-    const response = await fetch('/api/workout/log', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to save run');
-    }
-
-    // Refresh the page to show the new workout
-    router.refresh();
-  };
 
   // Generate list of weeks to display
   const weekStart = getWeekStart(new Date());
@@ -218,34 +198,23 @@ export function ScheduleView({ workouts }: ScheduleViewProps) {
   }, []);
 
   return (
-    <main className="min-h-screen bg-[#fafafa] dark:bg-[#0a0a0a] pb-8">
+    <main className="min-h-screen bg-[#fafafa] dark:bg-[#0a0a0a] pb-28">
       {/* Header */}
       <header className="sticky top-0 z-10 bg-[#fafafa]/80 dark:bg-[#0a0a0a]/80 backdrop-blur-lg border-b border-gray-200 dark:border-gray-800">
         <div className="max-w-2xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Link
-                href="/"
-                className="w-10 h-10 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-              >
-                <svg className="w-5 h-5 text-gray-600 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-              </Link>
-              <div>
-                <h1 className="text-xl font-bold text-gray-900 dark:text-white">Training Schedule</h1>
-                <p className="text-sm text-gray-500">Your upcoming workouts</p>
-              </div>
-            </div>
-            <button
-              onClick={() => setIsLogModalOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#D4E157] text-gray-900 font-semibold hover:bg-[#c4d147] transition-colors"
+          <div className="flex items-center gap-4">
+            <Link
+              href="/"
+              className="w-10 h-10 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
             >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              <svg className="w-5 h-5 text-gray-600 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
-              <span className="hidden sm:inline">Log Run</span>
-            </button>
+            </Link>
+            <div>
+              <h1 className="text-xl font-bold text-gray-900 dark:text-white">Training Schedule</h1>
+              <p className="text-sm text-gray-500">Your upcoming workouts</p>
+            </div>
           </div>
         </div>
       </header>
@@ -322,12 +291,6 @@ export function ScheduleView({ workouts }: ScheduleViewProps) {
         })}
       </div>
 
-      {/* Log Run Modal */}
-      <LogRunModal
-        isOpen={isLogModalOpen}
-        onClose={() => setIsLogModalOpen(false)}
-        onSave={handleLogRun}
-      />
     </main>
   );
 }
