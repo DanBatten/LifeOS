@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import type { HealthSnapshot, Workout, MealPlan, PlannedMeal } from '@lifeos/core';
 
@@ -64,15 +65,32 @@ function isMorningRun(timeStr: string | null): boolean {
   return hour !== null && hour < 12;
 }
 
+// Convert oz to litres
+function ozToLitres(oz: number): number {
+  return Math.round((oz * 0.0296) * 10) / 10; // 1 oz = 0.0296 L
+}
+
+// Meal type with calories
+interface MealData {
+  type: string;
+  name: string;
+  description?: string;
+  timing?: string;
+  calories: number;
+  isHighlighted?: boolean;
+}
+
 // Meal row component
 function MealRow({
   meal,
   timing,
+  calories,
   isHighlighted = false,
   onRegenerate
 }: {
   meal: { type: string; name: string; description?: string };
   timing?: string;
+  calories: number;
   isHighlighted?: boolean;
   onRegenerate?: () => void;
 }) {
@@ -101,6 +119,10 @@ function MealRow({
         {meal.description && (
           <p className="text-sm text-gray-500">{meal.description}</p>
         )}
+      </div>
+      <div className="text-right flex-shrink-0">
+        <p className="text-sm font-semibold text-gray-700">~{calories}</p>
+        <p className="text-xs text-gray-400">cal</p>
       </div>
       {onRegenerate && (
         <button
@@ -173,6 +195,11 @@ export function NutritionView({
   todaysRunTime,
   runPreferences,
 }: NutritionViewProps) {
+  const [overviewText, setOverviewText] = useState<string | null>(null);
+  const [overviewLoading, setOverviewLoading] = useState(true);
+  const [generatedMeals, setGeneratedMeals] = useState<MealData[] | null>(null);
+  const [mealsLoading, setMealsLoading] = useState(true);
+
   const hasRunToday = !!todaysRun;
   const runMiles = todaysRun?.prescribedDistanceMiles || 0;
   const runTimeFormatted = formatTime(todaysRunTime);
@@ -184,15 +211,89 @@ export function NutritionView({
     ? upcomingWorkouts.find(w => w.title?.toLowerCase().includes('run') || w.prescribedDistanceMiles)
     : null;
 
-  // Generate meals structured around run timing
-  const getMealsForRunSchedule = () => {
+  // Fetch LLM-generated overview and meals in parallel
+  useEffect(() => {
+    const sleepHours = todayHealth?.sleepHours || null;
+    const hrv = todayHealth?.hrv;
+
+    // Fetch overview
+    async function fetchOverview() {
+      try {
+        const response = await fetch('/api/nutrition/overview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sleepHours,
+            sleepQuality: sleepHours ? (sleepHours >= 7 ? 'solid' : 'light') : null,
+            runMiles: hasRunToday ? runMiles : null,
+            runTime: hasRunToday ? runTimeFormatted : null,
+            runType: todaysRun?.title?.toLowerCase() || null,
+            isMorningRun: morningRun,
+            hasRunToday,
+            nextRunMiles: nextRun?.prescribedDistanceMiles || null,
+            nextRunDay: nextRun?.scheduledDate
+              ? new Date(nextRun.scheduledDate).toLocaleDateString('en-US', { weekday: 'long' })
+              : null,
+            hrvStatus: hrv && hrv < 40 ? 'low' : null,
+            userName: 'Dan',
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setOverviewText(data.overview);
+        }
+      } catch (error) {
+        console.error('Failed to fetch overview:', error);
+      } finally {
+        setOverviewLoading(false);
+      }
+    }
+
+    // Fetch meals (hybrid LLM + deterministic)
+    async function fetchMeals() {
+      try {
+        const response = await fetch('/api/nutrition/meals', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            hasRunToday,
+            runMiles: hasRunToday ? runMiles : null,
+            runTime: hasRunToday ? runTimeFormatted : null,
+            isMorningRun: morningRun,
+            runType: todaysRun?.title?.toLowerCase() || null,
+            weeklyMiles: weeklyTrainingLoad.totalMiles,
+            isHighVolumeWeek: weeklyTrainingLoad.totalMiles > 40,
+            sleepHours,
+            hrvLow: hrv ? hrv < 40 : false,
+            dailyCalorieTarget: estimatedDailyNeeds,
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setGeneratedMeals(data.meals);
+        }
+      } catch (error) {
+        console.error('Failed to fetch meals:', error);
+      } finally {
+        setMealsLoading(false);
+      }
+    }
+
+    fetchOverview();
+    fetchMeals();
+  }, [todayHealth, hasRunToday, runMiles, runTimeFormatted, morningRun, todaysRun, nextRun, weeklyTrainingLoad, estimatedDailyNeeds]);
+
+  // Generate meals structured around run timing with calorie estimates
+  const getMealsForRunSchedule = (): MealData[] => {
     if (!hasRunToday) {
       // Rest day or no run - standard meal schedule
       return [
-        { type: 'breakfast', name: 'Eggs with avocado & whole grain toast', description: 'Protein-focused start', timing: '~7:30am' },
-        { type: 'lunch', name: 'Grilled chicken salad with quinoa', description: 'Lean protein + whole grains', timing: '~12:30pm' },
-        { type: 'snack', name: 'Greek yogurt with berries', description: 'Afternoon protein boost', timing: '~3:30pm' },
-        { type: 'dinner', name: 'Salmon with sweet potato & vegetables', description: 'Omega-3s + complex carbs', timing: '~6:30pm' },
+        { type: 'breakfast', name: 'Eggs with avocado & whole grain toast', description: 'Protein-focused start', timing: '~7:30am', calories: 450 },
+        { type: 'lunch', name: 'Grilled chicken salad with quinoa', description: 'Lean protein + whole grains', timing: '~12:30pm', calories: 550 },
+        { type: 'snack', name: 'Greek yogurt with berries', description: 'Afternoon protein boost', timing: '~3:30pm', calories: 200 },
+        { type: 'dinner', name: 'Salmon with sweet potato & vegetables', description: 'Omega-3s + complex carbs', timing: '~6:30pm', calories: 650 },
       ];
     }
 
@@ -207,89 +308,67 @@ export function NutritionView({
           name: 'Banana or rice cake with honey',
           description: 'Light, fast-digesting carbs',
           timing: `~${snackTime}`,
+          calories: 120,
           isHighlighted: true
         },
         {
           type: 'breakfast',
           name: 'Oatmeal with berries, nuts & Greek yogurt',
           description: 'Post-run recovery meal - carbs + protein',
-          timing: `~${breakfastTime} (post-run)`
+          timing: `~${breakfastTime} (post-run)`,
+          calories: 550
         },
-        { type: 'lunch', name: 'Grilled chicken wrap with hummus & veggies', description: 'Continued recovery nutrition', timing: '~12:30pm' },
-        { type: 'snack', name: 'Apple with almond butter', description: 'Sustained energy', timing: '~3:30pm' },
-        { type: 'dinner', name: 'Salmon with rice & roasted vegetables', description: 'Anti-inflammatory + glycogen replenishment', timing: '~6:30pm' },
+        { type: 'lunch', name: 'Grilled chicken wrap with hummus & veggies', description: 'Continued recovery nutrition', timing: '~12:30pm', calories: 500 },
+        { type: 'snack', name: 'Apple with almond butter', description: 'Sustained energy', timing: '~3:30pm', calories: 250 },
+        { type: 'dinner', name: 'Salmon with rice & roasted vegetables', description: 'Anti-inflammatory + glycogen replenishment', timing: '~6:30pm', calories: 700 },
       ];
     } else {
       // Afternoon/evening run - full breakfast, light lunch, post-run dinner
       return [
-        { type: 'breakfast', name: 'Oatmeal with banana & almond butter', description: 'Carb-loading for later run', timing: '~7:30am' },
-        { type: 'lunch', name: 'Turkey sandwich on whole grain', description: 'Moderate meal - 3+ hrs before run', timing: '~12:00pm' },
+        { type: 'breakfast', name: 'Oatmeal with banana & almond butter', description: 'Carb-loading for later run', timing: '~7:30am', calories: 500 },
+        { type: 'lunch', name: 'Turkey sandwich on whole grain', description: 'Moderate meal - 3+ hrs before run', timing: '~12:00pm', calories: 450 },
         {
           type: 'pre_run',
           name: 'Rice cake with honey or banana',
           description: 'Light pre-run fuel',
           timing: `~${runTimeFormatted ? `${parseInt(runTimeFormatted) - 1}:30pm` : '3:30pm'}`,
+          calories: 100,
           isHighlighted: true
         },
         {
           type: 'dinner',
           name: 'Chicken stir-fry with rice & vegetables',
           description: 'Post-run recovery - protein + carbs',
-          timing: 'Post-run'
+          timing: 'Post-run',
+          calories: 650
         },
       ];
     }
   };
 
-  const meals = todaysMeals.length > 0
+  // Priority: 1) Database meal plan, 2) LLM-generated meals, 3) Hardcoded fallback
+  const meals: MealData[] = todaysMeals.length > 0
     ? todaysMeals.map(m => ({
         type: m.mealType,
         name: m.name,
         description: m.description,
         timing: undefined,
+        calories: 400, // Default estimate for planned meals
         isHighlighted: false
       }))
-    : getMealsForRunSchedule();
+    : generatedMeals || getMealsForRunSchedule();
 
-  // Hydration target based on run
-  const baseHydration = 80; // oz
-  const runHydrationBonus = runMiles * 6; // ~6oz per mile
-  const hydrationTarget = Math.round(baseHydration + runHydrationBonus);
+  // Calculate total calories from meals
+  const totalMealCalories = meals.reduce((sum, m) => sum + m.calories, 0);
+
+  // Hydration target in litres (base ~2.5L + ~0.2L per mile for runs)
+  const baseHydrationLitres = 2.5;
+  const runHydrationBonus = runMiles * 0.18; // ~180ml per mile
+  const hydrationTargetLitres = Math.round((baseHydrationLitres + runHydrationBonus) * 10) / 10;
   const hydrationBrand = runPreferences.preferredHydrationBrands?.[0] || 'electrolyte mix';
 
-  // Generate conversational overview
-  const getOverview = () => {
-    const sleepHours = todayHealth?.sleepHours;
-    const hrv = todayHealth?.hrv;
-
-    let sleepNote = '';
-    if (sleepHours) {
-      sleepNote = sleepHours >= 7 ? 'you had solid sleep' : 'sleep was a bit light';
-    }
-
-    let preRunAdvice = '';
-    let mainAdvice = '';
-
-    if (hasRunToday) {
-      if (morningRun) {
-        preRunAdvice = `Have a light snack like a banana about 30-45 min before your ${runTimeFormatted} run`;
-        mainAdvice = runMiles > 10
-          ? 'focus on carb-rich recovery meals and staying hydrated throughout the day'
-          : 'prioritize a solid post-run breakfast with protein and carbs';
-      } else {
-        preRunAdvice = `Keep lunch moderate and have a light snack 30-45 min before your ${runTimeFormatted} run`;
-        mainAdvice = 'front-load your carbs at breakfast and stay well hydrated';
-      }
-    } else if (nextRun) {
-      mainAdvice = `rest day nutrition - maintain balanced meals and hydration ahead of your upcoming ${nextRun.prescribedDistanceMiles || ''} mile run`;
-    } else {
-      mainAdvice = 'balanced nutrition with plenty of whole foods and protein';
-    }
-
-    return { sleepNote, preRunAdvice, mainAdvice };
-  };
-
-  const overview = getOverview();
+  // Post-run hydration in ml
+  const postRunHydrationMl = 500; // 500ml = ~16-17oz
 
   // Flagged biomarkers that need attention
   const flaggedBiomarkers = nutritionBiomarkers.filter(b => b.flag !== 'normal' && b.flag !== 'optimal');
@@ -336,17 +415,18 @@ export function NutritionView({
       <div className="px-6 py-6">
         <div className="max-w-2xl mx-auto space-y-6">
 
-          {/* Conversational Overview */}
+          {/* Conversational Overview - LLM Generated */}
           <div className="bg-gradient-to-r from-[#f0f7e0] to-[#e8f5c8] rounded-3xl p-6">
-            <p className="text-gray-800 leading-relaxed">
-              <span className="font-semibold">Hi Dan</span>
-              {overview.sleepNote && <>, {overview.sleepNote}</>}
-              {hasRunToday && (
-                <> with a <span className="font-medium">{runMiles} mile run at {runTimeFormatted}</span> today</>
-              )}
-              . {overview.preRunAdvice && <><span className="text-[#558b2f] font-medium">{overview.preRunAdvice}</span>. </>}
-              Today, {overview.mainAdvice}.
-            </p>
+            {overviewLoading ? (
+              <div className="flex items-center gap-2 text-gray-600">
+                <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+                <span>Loading your daily briefing...</span>
+              </div>
+            ) : (
+              <p className="text-gray-800 leading-relaxed">
+                {overviewText || `Hi Dan, focus on balanced nutrition with plenty of whole foods today.`}
+              </p>
+            )}
           </div>
 
           {/* Today's Meals Module */}
@@ -364,7 +444,7 @@ export function NutritionView({
               <div className="flex items-center gap-3">
                 <span className="text-2xl">💧</span>
                 <div>
-                  <p className="text-lg font-bold text-gray-900">{hydrationTarget}oz</p>
+                  <p className="text-lg font-bold text-gray-900">{hydrationTargetLitres}L</p>
                   <p className="text-xs text-gray-500">Hydration target</p>
                 </div>
               </div>
@@ -378,8 +458,8 @@ export function NutritionView({
                   <div className="text-sm text-blue-800">
                     <p className="font-medium mb-1">Post-run hydration</p>
                     <p className="text-blue-700">
-                      Within 30 min of finishing: 16-20oz water with {hydrationBrand} for electrolyte replenishment.
-                      {runMiles > 8 && ` For your ${runMiles} miler, aim to replace ~${Math.round(runMiles * 4)}oz over the next 2 hours.`}
+                      Within 30 min of finishing: {postRunHydrationMl}ml water with {hydrationBrand} for electrolyte replenishment.
+                      {runMiles > 8 && ` For your ${runMiles} miler, aim to replace ~${Math.round(runMiles * 0.12 * 10) / 10}L over the next 2 hours.`}
                     </p>
                   </div>
                 </div>
@@ -388,15 +468,29 @@ export function NutritionView({
 
             {/* Meal list */}
             <div>
-              {meals.map((meal, i) => (
-                <MealRow
-                  key={i}
-                  meal={meal}
-                  timing={meal.timing}
-                  isHighlighted={'isHighlighted' in meal && meal.isHighlighted}
-                  onRegenerate={() => console.log('Regenerate', meal.type)}
-                />
-              ))}
+              {mealsLoading ? (
+                <div className="py-8 text-center">
+                  <div className="w-6 h-6 border-2 border-gray-300 border-t-[#7cb342] rounded-full animate-spin mx-auto mb-2" />
+                  <p className="text-sm text-gray-500">Generating personalized meals...</p>
+                </div>
+              ) : (
+                meals.map((meal, i) => (
+                  <MealRow
+                    key={i}
+                    meal={meal}
+                    timing={meal.timing}
+                    calories={meal.calories}
+                    isHighlighted={meal.isHighlighted || false}
+                    onRegenerate={() => console.log('Regenerate', meal.type)}
+                  />
+                ))
+              )}
+            </div>
+
+            {/* Total calories summary */}
+            <div className="mt-3 pt-3 border-t flex items-center justify-between text-sm">
+              <span className="text-gray-500">Total from meals</span>
+              <span className="font-semibold text-gray-700">~{totalMealCalories} cal</span>
             </div>
 
             {/* Quick add */}
