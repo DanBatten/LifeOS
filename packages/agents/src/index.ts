@@ -10,7 +10,8 @@ export { TrainingCoachAgent } from './training/index.js';
 export * from './training/prompts.js';
 
 // Planning Coach Agent (weekly planning, pace adjustments, periodization)
-export { PlanningCoachAgent } from './planning/index.js';
+// TODO: Uncomment when planning feature is ready
+// export { PlanningCoachAgent } from './planning/index.js';
 
 // Nutrition Agent (fueling, hydration, race nutrition)
 export { NutritionAgent, getNutritionTools } from './nutrition/index.js';
