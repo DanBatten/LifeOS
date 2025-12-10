@@ -39,8 +39,9 @@ export default async function NutritionPage() {
   const supabase = getSupabase();
   const env = getEnv();
   const userId = env.USER_ID;
+  const timezone = env.TIMEZONE;
 
-  const healthRepo = new HealthRepository(supabase);
+  const healthRepo = new HealthRepository(supabase, timezone);
   const workoutRepo = new WorkoutRepository(supabase);
   const mealPlanRepo = new MealPlanRepository(supabase);
 

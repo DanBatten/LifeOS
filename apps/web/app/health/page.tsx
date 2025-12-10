@@ -9,8 +9,9 @@ export default async function HealthPage() {
   const supabase = getSupabase();
   const env = getEnv();
   const userId = env.USER_ID;
+  const timezone = env.TIMEZONE;
 
-  const healthRepo = new HealthRepository(supabase);
+  const healthRepo = new HealthRepository(supabase, timezone);
 
   // Fetch health data in parallel
   const [todaySnapshot, recentSnapshots, averages, recoveryScore] = await Promise.all([

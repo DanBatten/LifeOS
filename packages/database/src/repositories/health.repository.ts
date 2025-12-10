@@ -9,15 +9,21 @@ export class HealthRepository extends BaseRepository<
   CreateHealthSnapshot,
   Partial<CreateHealthSnapshot>
 > {
-  constructor(client: SupabaseClient) {
+  private timezone?: string;
+
+  constructor(client: SupabaseClient, timezone?: string) {
     super(client, 'health_snapshots');
+    this.timezone = timezone;
   }
 
   /**
    * Find health snapshot for a specific date
    */
   async findByDate(userId: string, date: Date): Promise<HealthSnapshot | null> {
-    const dateStr = date.toISOString().split('T')[0];
+    // Use timezone-aware date conversion
+    const dateStr = this.timezone
+      ? date.toLocaleDateString('en-CA', { timeZone: this.timezone })
+      : date.toISOString().split('T')[0];
 
     const { data, error } = await this.client
       .from(this.tableName)
@@ -46,7 +52,9 @@ export class HealthRepository extends BaseRepository<
     days: number
   ): Promise<HealthSnapshot[]> {
     const startDate = subtractDays(new Date(), days);
-    const startDateStr = startDate.toISOString().split('T')[0];
+    const startDateStr = this.timezone
+      ? startDate.toLocaleDateString('en-CA', { timeZone: this.timezone })
+      : startDate.toISOString().split('T')[0];
 
     const { data, error } = await this.client
       .from(this.tableName)

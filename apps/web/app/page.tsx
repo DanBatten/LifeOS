@@ -48,9 +48,10 @@ export default async function Dashboard() {
   const supabase = getSupabase();
   const env = getEnv();
   const userId = env.USER_ID;
+  const timezone = env.TIMEZONE;
 
-  // Initialize repositories
-  const healthRepo = new HealthRepository(supabase);
+  // Initialize repositories with timezone for correct date handling
+  const healthRepo = new HealthRepository(supabase, timezone);
   const workoutRepo = new WorkoutRepository(supabase);
   const whiteboardRepo = new WhiteboardRepository(supabase);
   const taskRepo = new TaskRepository(supabase);
