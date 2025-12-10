@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { getSupabase } from '@/lib/supabase';
 import { getEnv } from '@/lib/env';
 import { HealthRepository } from '@lifeos/database';
