@@ -1,5 +1,6 @@
+import Link from 'next/link';
 import { ModuleCard, MiniCard } from '../ui/ModuleCard';
-import { StatDisplay, CompactStat } from '../ui/StatDisplay';
+import { StatDisplay } from '../ui/StatDisplay';
 import type { HealthSnapshot } from '@lifeos/core';
 
 interface HealthModuleProps {
@@ -64,27 +65,37 @@ export function HealthModule({ healthData, recoveryScore, averages }: HealthModu
         />
       </div>
 
-      {/* Main recovery card */}
-      <ModuleCard color="lime" title="Recovery Status" actionButton>
-        <StatDisplay
-          value={recoveryPct ?? '--'}
-          prefix=""
-          label={recoveryPct !== null ? (recoveryPct >= 70 ? 'Ready to perform' : recoveryPct >= 50 ? 'Moderate recovery' : 'Rest recommended') : undefined}
-          comparison={getComparisonText() ?? undefined}
-          size="xl"
-        />
+      {/* Main recovery card - Now clickable */}
+      <Link href="/health" className="block">
+        <ModuleCard color="lime" title="Recovery Status" actionButton className="hover:shadow-lg transition-shadow">
+          <StatDisplay
+            value={recoveryPct ?? '--'}
+            prefix=""
+            label={recoveryPct !== null ? (recoveryPct >= 70 ? 'Ready to perform' : recoveryPct >= 50 ? 'Moderate recovery' : 'Rest recommended') : undefined}
+            comparison={getComparisonText() ?? undefined}
+            size="xl"
+          />
 
-        {/* HRV highlight */}
-        <div className="mt-6 pt-4 border-t border-[#c4d147]/30">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-gray-700">HRV</span>
-            <div className="flex items-baseline gap-1">
-              <span className="text-2xl font-bold">{hrv}</span>
-              <span className="text-sm text-gray-600">ms</span>
+          {/* HRV highlight */}
+          <div className="mt-6 pt-4 border-t border-[#c4d147]/30">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-gray-700">HRV</span>
+              <div className="flex items-baseline gap-1">
+                <span className="text-2xl font-bold">{hrv}</span>
+                <span className="text-sm text-gray-600">ms</span>
+              </div>
             </div>
           </div>
-        </div>
-      </ModuleCard>
+
+          {/* View health hint */}
+          <div className="mt-4 pt-3 border-t border-[#c4d147]/30 flex items-center justify-between">
+            <span className="text-xs text-gray-600">View health details</span>
+            <svg className="w-4 h-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </div>
+        </ModuleCard>
+      </Link>
     </div>
   );
 }

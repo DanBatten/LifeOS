@@ -37,3 +37,14 @@ export {
   type WriteWhiteboardResult,
 } from './whiteboard/index.js';
 
+// Run planning skills
+export {
+  generateWorkoutRunPlan,
+  generateRunPlan,
+  getRunningPreferences,
+  type RunPlan,
+  type RunningPreferences,
+  type ShoeInfo,
+  type FuelingItem,
+} from './run-planning/index.js';
+

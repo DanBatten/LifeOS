@@ -42,3 +42,7 @@ export {
   type WeeklySummaryResult,
 } from './weekly-summary.workflow.js';
 
+export {
+  runWeeklyPlanning,
+  type WeeklyPlanResult,
+} from './weekly-planning.workflow.js';

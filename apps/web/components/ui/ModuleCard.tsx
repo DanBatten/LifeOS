@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { ReactNode } from 'react';
 
-export type ModuleColor = 'lime' | 'dark' | 'light' | 'white';
+export type ModuleColor = 'lime' | 'dark' | 'light' | 'white' | 'amber';
 export type ModuleSize = 'sm' | 'md' | 'lg';
 
 interface ModuleCardProps {
@@ -20,6 +20,7 @@ const colorClasses: Record<ModuleColor, string> = {
   dark: 'bg-[#1a1a1a] text-white',
   light: 'bg-[#f5f5f5] text-gray-900',
   white: 'bg-white text-gray-900 shadow-sm',
+  amber: 'bg-amber-100 text-gray-900',
 };
 
 const patternColors: Record<ModuleColor, string> = {
@@ -27,6 +28,7 @@ const patternColors: Record<ModuleColor, string> = {
   dark: 'stroke-gray-700/50',
   light: 'stroke-gray-300/50',
   white: 'stroke-gray-200/50',
+  amber: 'stroke-amber-300/40',
 };
 
 // Decorative arc pattern SVG
