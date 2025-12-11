@@ -20,7 +20,7 @@ export const maxDuration = 120; // Allow time for Garmin sync + agent analysis
  * After this runs, user can log in and see everything ready.
  */
 export async function GET(request: NextRequest) {
-  const headersList = headers();
+  const headersList = await headers();
   const authHeader = headersList.get('authorization');
   const env = getEnv();
 

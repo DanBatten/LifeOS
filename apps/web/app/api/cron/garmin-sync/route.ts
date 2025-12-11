@@ -20,12 +20,13 @@ export const maxDuration = 120; // Garmin sync can take longer
  * - ?type=morning - Quick morning sync (yesterday + today)
  */
 export async function GET(request: NextRequest) {
-  const headersList = headers();
+  const headersList = await headers();
   const authHeader = headersList.get('authorization');
   const env = getEnv();
 
-  // Verify cron secret in production
-  if (env.CRON_SECRET && authHeader !== `Bearer ${env.CRON_SECRET}`) {
+  // Verify cron secret in production (skip in development for easier testing)
+  const isDev = process.env.NODE_ENV === 'development';
+  if (!isDev && env.CRON_SECRET && authHeader !== `Bearer ${env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
