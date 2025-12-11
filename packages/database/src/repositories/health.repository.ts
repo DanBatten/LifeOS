@@ -70,9 +70,42 @@ export class HealthRepository extends BaseRepository<
 
   /**
    * Get today's health snapshot
+   * Falls back to most recent snapshot with actual data if today has no data yet
    */
   async getToday(userId: string): Promise<HealthSnapshot | null> {
-    return this.findByDate(userId, new Date());
+    const today = await this.findByDate(userId, new Date());
+
+    // If we have today's data with actual values, return it
+    if (today && (today.sleepHours || today.hrv || today.restingHr)) {
+      return today;
+    }
+
+    // Otherwise get the most recent snapshot with actual data
+    return this.getMostRecentWithData(userId);
+  }
+
+  /**
+   * Get the most recent health snapshot that has actual data
+   * (not just a placeholder record with null values)
+   */
+  async getMostRecentWithData(userId: string): Promise<HealthSnapshot | null> {
+    const { data, error } = await this.client
+      .from(this.tableName)
+      .select('*')
+      .eq('user_id', userId)
+      .not('sleep_hours', 'is', null)
+      .order('snapshot_date', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null;
+      }
+      throw error;
+    }
+
+    return this.transformFromDb(data);
   }
 
   /**
