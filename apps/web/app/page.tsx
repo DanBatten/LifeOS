@@ -12,6 +12,7 @@ import { HealthModule } from '@/components/dashboard/HealthModule';
 import { TrainingModule } from '@/components/dashboard/TrainingModule';
 import { NutritionModule } from '@/components/dashboard/NutritionModule';
 import { PlanningModule } from '@/components/dashboard/PlanningModule';
+import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 
 // Calculate weekly mileage from recent workouts
 function calculateWeeklyMileage(workouts: { scheduledDate?: Date; prescribedDistanceMiles?: number; metadata?: Record<string, unknown> }[]) {
@@ -87,23 +88,8 @@ export default async function Dashboard() {
 
   return (
     <main className="min-h-screen bg-[#fafafa] dark:bg-[#0a0a0a] pb-28">
-      {/* Header */}
-      <header className="px-6 pt-12 pb-8">
-        <div className="max-w-lg mx-auto">
-          <div className="flex items-center justify-between mb-1">
-            <p className="text-sm text-gray-500">{dateString}</p>
-            <div className="w-8 h-8 rounded-full bg-[#D4E157] flex items-center justify-center">
-              <span className="text-xs font-bold text-gray-900">
-                {/* User initial or icon */}
-                D
-              </span>
-            </div>
-          </div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">
-            LifeOS
-          </h1>
-        </div>
-      </header>
+      {/* Time-aware Header */}
+      <DashboardHeader serverDateString={dateString} />
 
       {/* Dashboard Content */}
       <div className="px-6">

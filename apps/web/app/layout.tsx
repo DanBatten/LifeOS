@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { FloatingChatBar } from '@/components/chat/FloatingChatBar';
+import { Providers } from '@/providers';
+import { getEnv } from '@/lib/env';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -15,11 +17,16 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const env = getEnv();
+  const timezone = env.TIMEZONE;
+
   return (
     <html lang="en">
       <body className={inter.className}>
-        {children}
-        <FloatingChatBar />
+        <Providers timezone={timezone} userName="Dan">
+          {children}
+          <FloatingChatBar />
+        </Providers>
       </body>
     </html>
   );
