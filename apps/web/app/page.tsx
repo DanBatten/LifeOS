@@ -76,12 +76,13 @@ export default async function Dashboard() {
   // Filter whiteboard entries
   const insights = whiteboardEntries.filter((e) => e.entryType !== 'alert');
 
-  // Get current date formatted
+  // Get current date formatted in user's timezone
   const today = new Date();
   const dateString = today.toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
+    timeZone: timezone,
   });
 
   return (
