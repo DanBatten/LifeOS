@@ -69,31 +69,83 @@ export async function POST(request: NextRequest) {
       console.log('[Chat] Detected run-logging intent, switching to post-run context');
     }
 
-    // For post-run context (explicit or detected), sync Garmin data first to get latest workout
+    // For post-run context (explicit or detected), try to sync/load the latest workout
     let activitySyncResult = null;
     if (effectiveContext === 'post-run') {
-      console.log('[Chat] Post-run context detected, syncing Garmin activity...');
+      console.log('[Chat] Post-run context detected, attempting to sync/load workout...');
+
+      // First try to sync from Garmin (this may fail on Vercel due to uvx requirement)
       try {
-        // Sync the latest activity (workout) - this is the critical one for post-run
         activitySyncResult = await syncLatestActivity(supabaseService, env.USER_ID, {
           date: new Date().toISOString().split('T')[0],
-          forceResync: false, // Don't re-sync if already synced
+          forceResync: false,
         });
         console.log('[Chat] Activity sync result:', {
           success: activitySyncResult.success,
           action: activitySyncResult.action,
           workout: activitySyncResult.workout?.title,
         });
-
-        // Also sync health metrics in background
-        syncGarminMetrics(supabaseService, env.USER_ID, {
-          date: new Date().toISOString().split('T')[0],
-        }).catch(err => console.error('[Chat] Background health sync failed:', err));
-
       } catch (syncError) {
-        console.error('[Chat] Garmin activity sync failed:', syncError);
-        // Continue anyway - we'll use whatever data is available
+        console.error('[Chat] Garmin sync failed (expected on Vercel):', syncError);
       }
+
+      // If no workout from sync, try to load today's most recent completed workout from DB
+      if (!activitySyncResult?.workout) {
+        console.log('[Chat] No synced workout, checking database for today\'s workout...');
+        try {
+          const todayDate = new Date().toLocaleDateString('en-CA', { timeZone: env.TIMEZONE });
+          const { data: todayWorkout } = await supabaseService
+            .from('workouts')
+            .select('*')
+            .eq('user_id', env.USER_ID)
+            .eq('scheduled_date', todayDate)
+            .eq('status', 'completed')
+            .order('completed_at', { ascending: false })
+            .limit(1)
+            .single();
+
+          if (todayWorkout) {
+            console.log('[Chat] Found today\'s workout in DB:', todayWorkout.title);
+            // Transform to SyncedWorkout format
+            const metadata = (todayWorkout.metadata || {}) as Record<string, unknown>;
+            activitySyncResult = {
+              success: true,
+              action: 'already_synced' as const,
+              workout: {
+                id: todayWorkout.id,
+                title: todayWorkout.title,
+                workoutType: todayWorkout.workout_type,
+                scheduledDate: todayWorkout.scheduled_date,
+                status: todayWorkout.status,
+                prescribedDistanceMiles: todayWorkout.prescribed_distance_miles,
+                prescribedPacePerMile: todayWorkout.prescribed_pace_per_mile,
+                prescribedDescription: todayWorkout.prescribed_description,
+                actualDurationMinutes: todayWorkout.actual_duration_minutes,
+                actualDistanceMiles: metadata.actual_distance_miles as number | null,
+                actualPacePerMile: metadata.actual_pace as string | null,
+                avgHeartRate: todayWorkout.avg_heart_rate,
+                maxHeartRate: todayWorkout.max_heart_rate,
+                calories: todayWorkout.calories_burned,
+                elevationGainFt: metadata.elevation_gain_ft as number | null,
+                cadenceAvg: metadata.cadence_avg as number | null,
+                splits: (metadata.laps as unknown[]) || [],
+                coachNotes: todayWorkout.coach_notes,
+                athleteFeedback: todayWorkout.athlete_feedback,
+                perceivedExertion: todayWorkout.perceived_exertion,
+                matchedToPlannedWorkout: !!todayWorkout.plan_id,
+                garminActivityId: todayWorkout.external_id,
+              },
+            };
+          }
+        } catch (dbError) {
+          console.error('[Chat] Failed to load workout from DB:', dbError);
+        }
+      }
+
+      // Background health sync (may fail on Vercel)
+      syncGarminMetrics(supabaseService, env.USER_ID, {
+        date: new Date().toISOString().split('T')[0],
+      }).catch(err => console.log('[Chat] Background health sync skipped:', err.message));
     }
 
     // Fetch recent conversation history for context-aware routing
