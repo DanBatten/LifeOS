@@ -58,8 +58,8 @@ export default async function Dashboard() {
   const taskRepo = new TaskRepository(supabase);
 
   // Fetch all data in parallel
-  const [healthData, recoveryScore, healthAverages, recentWorkouts, weeklySummary, upcomingWorkouts, whiteboardEntries, alerts, priorityTasks] = await Promise.all([
-    healthRepo.getToday(userId).catch(() => null),
+  const [healthStatus, recoveryScore, healthAverages, recentWorkouts, weeklySummary, upcomingWorkouts, whiteboardEntries, alerts, priorityTasks] = await Promise.all([
+    healthRepo.getTodayWithStatus(userId).catch(() => ({ data: null, isStale: false, dataDate: null })),
     healthRepo.calculateRecoveryScore(userId).catch(() => 0.5),
     healthRepo.getAverages(userId, 7).catch(() => ({ sleepHours: null, hrv: null, restingHr: null })),
     workoutRepo.findRecentCompleted(userId, 7).catch(() => []),
@@ -97,9 +97,11 @@ export default async function Dashboard() {
           {/* Health Module */}
           <section>
             <HealthModule
-              healthData={healthData}
+              healthData={healthStatus.data}
               recoveryScore={recoveryScore}
               averages={healthAverages}
+              isStaleData={healthStatus.isStale}
+              dataDate={healthStatus.dataDate ?? undefined}
             />
           </section>
 
@@ -118,7 +120,7 @@ export default async function Dashboard() {
             <NutritionModule
               todayCalories={0}
               targetCalories={2100 + totalWeeklyMiles / 7 * 100}
-              activeCalories={healthData?.activeCalories || 0}
+              activeCalories={healthStatus.data?.activeCalories || 0}
               nextWorkoutDistance={upcomingWorkouts[0]?.prescribedDistanceMiles}
             />
           </section>

@@ -85,6 +85,54 @@ export class HealthRepository extends BaseRepository<
   }
 
   /**
+   * Get today's health snapshot with metadata about whether it's stale
+   */
+  async getTodayWithStatus(userId: string): Promise<{
+    data: HealthSnapshot | null;
+    isStale: boolean;
+    dataDate: string | null;
+  }> {
+    const todayStr = this.timezone
+      ? new Date().toLocaleDateString('en-CA', { timeZone: this.timezone })
+      : new Date().toISOString().split('T')[0];
+
+    const today = await this.findByDate(userId, new Date());
+
+    // If we have today's data with actual values, return it
+    if (today && (today.sleepHours || today.hrv || today.restingHr)) {
+      return {
+        data: today,
+        isStale: false,
+        dataDate: todayStr,
+      };
+    }
+
+    // Otherwise get the most recent snapshot with actual data
+    const fallback = await this.getMostRecentWithData(userId);
+
+    if (!fallback) {
+      return { data: null, isStale: false, dataDate: null };
+    }
+
+    // Format the date nicely
+    const fallbackDate = fallback.snapshotDate instanceof Date
+      ? fallback.snapshotDate
+      : new Date(fallback.snapshotDate);
+    const formattedDate = fallbackDate.toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      timeZone: this.timezone,
+    });
+
+    return {
+      data: fallback,
+      isStale: true,
+      dataDate: formattedDate,
+    };
+  }
+
+  /**
    * Get the most recent health snapshot that has actual data
    * (not just a placeholder record with null values)
    */

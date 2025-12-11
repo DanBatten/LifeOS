@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ModuleCard, MiniCard } from '../ui/ModuleCard';
 import { StatDisplay } from '../ui/StatDisplay';
+import { SyncButton } from './SyncButton';
 import type { HealthSnapshot } from '@lifeos/core';
 
 interface HealthModuleProps {
@@ -11,9 +12,13 @@ interface HealthModuleProps {
     hrv: number | null;
     restingHr: number | null;
   };
+  /** If true, the data shown is from a previous day (fallback) */
+  isStaleData?: boolean;
+  /** The date of the data being shown (if stale) */
+  dataDate?: string;
 }
 
-export function HealthModule({ healthData, recoveryScore, averages }: HealthModuleProps) {
+export function HealthModule({ healthData, recoveryScore, averages, isStaleData, dataDate }: HealthModuleProps) {
   const recoveryPct = recoveryScore ? Math.round(recoveryScore * 100) : null;
 
   // Calculate comparison text
@@ -28,7 +33,7 @@ export function HealthModule({ healthData, recoveryScore, averages }: HealthModu
     return 'Same as your 7-day average';
   };
 
-  // If no data, show empty state
+  // If no data, show empty state with sync button
   if (!healthData) {
     return (
       <ModuleCard color="light" showPattern={false}>
@@ -39,7 +44,8 @@ export function HealthModule({ healthData, recoveryScore, averages }: HealthModu
             </svg>
           </div>
           <p className="text-gray-500 font-medium">No health data yet</p>
-          <p className="text-sm text-gray-400 mt-1">Sync Garmin to see metrics</p>
+          <p className="text-sm text-gray-400 mt-1 mb-4">Sync Garmin to see metrics</p>
+          <SyncButton />
         </div>
       </ModuleCard>
     );
@@ -51,6 +57,21 @@ export function HealthModule({ healthData, recoveryScore, averages }: HealthModu
 
   return (
     <div className="space-y-3">
+      {/* Stale data warning banner */}
+      {isStaleData && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <svg className="w-4 h-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <span className="text-sm text-amber-800">
+              {dataDate ? `Showing data from ${dataDate}` : 'Today\'s data not synced yet'}
+            </span>
+          </div>
+          <SyncButton />
+        </div>
+      )}
+
       {/* Mini cards row */}
       <div className="flex gap-3">
         <MiniCard

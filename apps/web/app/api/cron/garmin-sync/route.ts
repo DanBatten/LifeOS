@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { createGarminSyncService } from '@lifeos/garmin';
+import { HealthRepository } from '@lifeos/database';
 import { getSupabaseService } from '@/lib/supabase';
 import { getEnv } from '@/lib/env';
 
@@ -9,15 +10,13 @@ export const maxDuration = 120; // Garmin sync can take longer
 
 /**
  * Garmin Sync Cron Endpoint
- * 
- * Scheduled to run hourly to sync:
- * - Recent activities (workouts)
- * - Sleep data
- * - Daily health metrics (steps, Body Battery, HRV, stress)
- * 
- * Can also be triggered manually with query params:
- * - ?days=7 - Backfill last 7 days
- * - ?type=morning - Quick morning sync (yesterday + today)
+ *
+ * Sync types:
+ * - morning: Quick morning sync (yesterday + today) at 6:05 AM
+ * - retry: Only syncs if today's data is missing (7:05 AM fallback)
+ * - scheduled: Regular sync
+ * - backfill: Backfill multiple days (?days=7)
+ * - manual: User-triggered sync from the UI
  */
 export async function GET(request: NextRequest) {
   const headersList = await headers();
@@ -43,10 +42,25 @@ export async function GET(request: NextRequest) {
   const daysBack = parseInt(searchParams.get('days') || '1', 10);
 
   const startTime = Date.now();
+  const supabase = getSupabaseService();
+
+  // For retry type, check if we already have today's data
+  if (syncType === 'retry') {
+    const healthRepo = new HealthRepository(supabase, env.TIMEZONE);
+    const todayData = await healthRepo.findByDate(env.USER_ID, new Date());
+
+    // If we have today's data with actual values, skip the sync
+    if (todayData && (todayData.sleepHours || todayData.hrv || todayData.restingHr)) {
+      return NextResponse.json({
+        success: true,
+        message: 'Today\'s data already exists, skipping retry sync',
+        syncType: 'retry',
+        skipped: true,
+      });
+    }
+  }
 
   try {
-    const supabase = getSupabaseService();
-
     // Create sync log entry
     const { data: syncLog } = await supabase
       .from('garmin_sync_log')
@@ -136,7 +150,6 @@ export async function GET(request: NextRequest) {
     console.error('Garmin sync error:', error);
 
     // Log the failure
-    const supabase = getSupabaseService();
     await supabase.from('garmin_sync_log').insert({
       user_id: env.USER_ID,
       sync_type: syncType,

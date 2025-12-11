@@ -10,6 +10,10 @@
       "schedule": "5 14 * * *"
     },
     {
+      "path": "/api/cron/garmin-sync?type=retry",
+      "schedule": "5 15 * * *"
+    },
+    {
       "path": "/api/cron/morning",
       "schedule": "10 14 * * *"
     }
