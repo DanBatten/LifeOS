@@ -20,6 +20,24 @@ const ChatRequestSchema = z.object({
 });
 
 /**
+ * Detect if the user wants to log/sync a run from Garmin
+ */
+function detectRunLoggingIntent(message: string): boolean {
+  const lowerMessage = message.toLowerCase();
+
+  const runLoggingPatterns = [
+    /\b(log|sync|record|add|import)\s+(my|a|the|today'?s?)?\s*(run|workout|activity)/i,
+    /\b(just|finished|completed|did)\s+(my|a|the)?\s*(run|workout|training)/i,
+    /\bpull\s+(in|from)\s+(my\s+)?(run|garmin|workout)/i,
+    /\bget\s+(my\s+)?(run|workout)\s+(from\s+)?garmin/i,
+    /\bsync\s+(from\s+)?garmin/i,
+    /\b(how was|analyze)\s+my\s+(run|workout)/i,
+  ];
+
+  return runLoggingPatterns.some(pattern => pattern.test(lowerMessage));
+}
+
+/**
  * Chat Endpoint
  * 
  * Handles user chat messages using the ChatFlow workflow.
@@ -43,9 +61,17 @@ export async function POST(request: NextRequest) {
     // Get or create session ID
     const currentSessionId = sessionId || crypto.randomUUID();
 
-    // For post-run context, sync Garmin data first to get latest workout
+    // Detect if user wants to log a run (auto-upgrade to post-run context)
+    const wantsToLogRun = detectRunLoggingIntent(message);
+    const effectiveContext = wantsToLogRun ? 'post-run' : (context || 'default');
+
+    if (wantsToLogRun) {
+      console.log('[Chat] Detected run-logging intent, switching to post-run context');
+    }
+
+    // For post-run context (explicit or detected), sync Garmin data first to get latest workout
     let activitySyncResult = null;
-    if (context === 'post-run') {
+    if (effectiveContext === 'post-run') {
       console.log('[Chat] Post-run context detected, syncing Garmin activity...');
       try {
         // Sync the latest activity (workout) - this is the critical one for post-run
@@ -100,7 +126,7 @@ export async function POST(request: NextRequest) {
       env.TIMEZONE,
       {
         conversationHistory,
-        context,
+        context: effectiveContext,
         syncedWorkout: activitySyncResult?.workout || undefined,
       }
     );
@@ -131,9 +157,9 @@ export async function POST(request: NextRequest) {
       console.error('Failed to save assistant message:', assistantMsgError);
     }
 
-    // For post-run context, save the coach analysis and athlete feedback to the workout
+    // For post-run context (explicit or detected), save the coach analysis and athlete feedback to the workout
     // This happens regardless of sync action (created, updated, or already_synced)
-    if (context === 'post-run') {
+    if (effectiveContext === 'post-run') {
       const workoutId = activitySyncResult?.workout?.id;
       console.log('[Chat] Post-run context - attempting to save notes. WorkoutId:', workoutId, 'SyncAction:', activitySyncResult?.action);
 
