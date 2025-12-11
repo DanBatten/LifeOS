@@ -1,6 +1,22 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "globalDependencies": ["**/.env.*local"],
+  "globalEnv": [
+    "SUPABASE_URL",
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_KEY",
+    "LLM_PROVIDER",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "GARMIN_EMAIL",
+    "GARMIN_PASSWORD",
+    "GARMIN_EMAIL_FILE",
+    "GARMIN_PASSWORD_FILE",
+    "USER_ID",
+    "TIMEZONE",
+    "LOG_LEVEL",
+    "CRON_SECRET"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
