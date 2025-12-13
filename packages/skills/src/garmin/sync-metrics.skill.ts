@@ -238,3 +238,4 @@ export async function syncGarminMetrics(
   }
 }
 
+// Force rebuild Sat Dec 13 09:24:43 PST 2025
