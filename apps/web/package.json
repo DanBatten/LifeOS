@@ -4,8 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
-    "build:local": "npm run build:deps && next build",
+    "build": "npm run build:deps && next build",
     "build:deps": "cd ../.. && npx turbo build --filter=@lifeos/web^...",
     "build:next": "next build",
     "start": "next start",
