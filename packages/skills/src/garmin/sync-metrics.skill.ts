@@ -65,6 +65,10 @@ export async function syncGarminMetrics(
           const scaled = Math.round(dailySummary.averageStressLevel / 10);
           healthData.stress_level = Math.max(1, scaled);
         }
+        // Resting HR from daily summary
+        if (dailySummary.restingHeartRate) {
+          healthData.resting_hr = dailySummary.restingHeartRate;
+        }
         healthData.metadata = {
           ...(healthData.metadata as object || {}),
           garmin: {
