@@ -1,19 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "outputDirectory": "apps/web/.next",
-  "crons": [
-    {
-      "path": "/api/cron/garmin-sync?type=morning",
-      "schedule": "5 14 * * *"
-    },
-    {
-      "path": "/api/cron/garmin-sync?type=retry",
-      "schedule": "5 15 * * *"
-    },
-    {
-      "path": "/api/cron/morning",
-      "schedule": "10 14 * * *"
-    }
-  ]
+  "outputDirectory": "apps/web/.next"
 }
