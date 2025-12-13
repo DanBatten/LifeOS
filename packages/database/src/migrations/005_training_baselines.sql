@@ -212,3 +212,4 @@ COMMENT ON COLUMN training_baselines.training_load_ratio IS 'Acute:Chronic ratio
 COMMENT ON COLUMN race_results.distance_type IS 'Standardized race distance category';
 COMMENT ON COLUMN race_results.lessons_learned IS 'Post-race reflection for future training/racing';
 
+

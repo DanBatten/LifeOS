@@ -108,3 +108,4 @@ COMMENT ON COLUMN workouts.garmin_activity_id IS 'Unique Garmin Connect activity
 COMMENT ON COLUMN health_snapshots.garmin_sync_id IS 'Identifier for tracking Garmin data sync (format: garmin-YYYY-MM-DD)';
 COMMENT ON TABLE garmin_sync_log IS 'Log of Garmin data sync operations for monitoring and debugging';
 
+

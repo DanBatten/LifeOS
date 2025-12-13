@@ -33,7 +33,8 @@ interface HealthViewProps {
   latestLabPanel: {
     id: string;
     panel_date: string;
-    provider: string;
+    panel_name: string;
+    lab_provider: string;
     panel_type: string;
     ai_summary: string | null;
   } | null;
