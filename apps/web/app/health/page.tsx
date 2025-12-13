@@ -41,7 +41,8 @@ export default async function HealthPage() {
   const labPanels = labPanelsData as Array<{
     id: string;
     panel_date: string;
-    provider: string;
+    panel_name: string;
+    lab_provider: string;
     panel_type: string;
     ai_summary: string | null;
   }> | null;
@@ -58,38 +59,33 @@ export default async function HealthPage() {
   }> = [];
 
   if (labPanels && labPanels.length > 0) {
-    const latestPanelId = labPanels[0].id;
+    const latestPanel = labPanels[0];
+    const latestPanelId = latestPanel.id;
+
+    // Query biomarker_results directly - data has biomarker_name and biomarker_code on the table
     const { data: results } = await supabase
       .from('biomarker_results')
       .select(`
         value,
         unit,
         flag,
-        optimal_status,
-        biomarker_definitions (
-          code,
-          name,
-          category
-        ),
-        lab_panels (
-          panel_date
-        )
+        in_optimal_range,
+        biomarker_name,
+        biomarker_code
       `)
       .eq('panel_id', latestPanelId)
-      .order('biomarker_definitions(category)');
+      .order('biomarker_name');
 
     if (results) {
       biomarkerResults = results.map((r: Record<string, unknown>) => {
-        const biomarkerDef = r.biomarker_definitions as { code: string; name: string } | null;
-        const labPanel = r.lab_panels as { panel_date: string } | null;
         return {
-          biomarkerCode: biomarkerDef?.code || 'unknown',
-          name: biomarkerDef?.name || 'Unknown',
+          biomarkerCode: (r.biomarker_code as string) || 'unknown',
+          name: (r.biomarker_name as string) || 'Unknown',
           value: r.value as number,
           unit: r.unit as string,
           flag: r.flag as string,
-          optimalStatus: r.optimal_status as string,
-          panelDate: labPanel?.panel_date || '',
+          optimalStatus: r.in_optimal_range ? 'optimal' : 'not_optimal',
+          panelDate: latestPanel.panel_date || '',
         };
       });
     }
