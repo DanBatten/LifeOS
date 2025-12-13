@@ -304,18 +304,23 @@ export function mapDailyDataToHealthSnapshot(
 
   // Sleep data
   if (sleep) {
-    snapshot.sleepHours = sleep.sleepTimeSeconds 
+    snapshot.sleepHours = sleep.sleepTimeSeconds
       ? Math.round((sleep.sleepTimeSeconds / 3600) * 10) / 10
       : undefined;
-    
+
     // Map sleep quality from Garmin sleep score (0-100) to our scale (1-10)
     if (sleep.sleepScores?.totalScore) {
       snapshot.sleepQuality = Math.round(sleep.sleepScores.totalScore / 10);
     }
-    
+
     // HRV from sleep
     if (sleep.avgOvernightHrv) {
       snapshot.hrv = Math.round(sleep.avgOvernightHrv);
+    }
+
+    // Resting HR from sleep data (preferred source - more accurate than daily summary)
+    if (sleep.restingHeartRate && !snapshot.restingHr) {
+      snapshot.restingHr = sleep.restingHeartRate;
     }
     
     snapshot.metadata = {
