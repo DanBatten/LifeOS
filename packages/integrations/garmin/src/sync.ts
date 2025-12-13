@@ -124,11 +124,13 @@ export class GarminSyncService {
 
     for (const activity of filteredActivities) {
       try {
-        // Check if already synced
+        // Check if already synced (using external_id with garmin: prefix)
+        const externalId = `garmin:${activity.activityId}`;
         const { data: existing } = await this.supabase
           .from('workouts')
           .select('id')
-          .eq('garmin_activity_id', String(activity.activityId))
+          .eq('external_id', externalId)
+          .eq('source', 'garmin')
           .single();
 
         if (existing) {
@@ -162,7 +164,7 @@ export class GarminSyncService {
           const { error } = await this.supabase
             .from('workouts')
             .update({
-              garmin_activity_id: workoutData.garminActivityId,
+              external_id: externalId,
               status: 'completed',
               actual_duration_minutes: workoutData.actualDurationMinutes,
               started_at: workoutData.startedAt,
@@ -195,7 +197,7 @@ export class GarminSyncService {
             .from('workouts')
             .insert({
               user_id: this.userId,
-              garmin_activity_id: workoutData.garminActivityId,
+              external_id: externalId,
               title: workoutData.title,
               workout_type: workoutData.workoutType,
               status: workoutData.status,
@@ -230,9 +232,10 @@ export class GarminSyncService {
 
         syncedCount++;
       } catch (error) {
-        logger.error(`Failed to sync activity ${activity.activityId}`, 
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.error(`Failed to sync activity ${activity.activityId}: ${errorMessage}`,
           error instanceof Error ? error : null,
-          { activityId: String(activity.activityId) }
+          { activityId: String(activity.activityId), errorDetail: errorMessage }
         );
       }
     }

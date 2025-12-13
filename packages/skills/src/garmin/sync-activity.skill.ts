@@ -93,8 +93,10 @@ export async function syncLatestActivity(
     }
 
     // Filter to activities on the target date
+    // Note: startTimeLocal format can be "2025-12-11 06:55:29" (space) or "2025-12-11T06:55:29" (T)
     const activities = allActivities.filter(a => {
-      const activityDate = a.startTimeLocal?.split('T')[0];
+      const dateStr = a.startTimeLocal || '';
+      const activityDate = dateStr.split('T')[0].split(' ')[0]; // Handle both formats
       return activityDate === targetDate;
     });
 
@@ -102,9 +104,12 @@ export async function syncLatestActivity(
 
     if (activities.length === 0) {
       // Show what dates we do have activities for
-      const availableDates = [...new Set(allActivities.map(a => a.startTimeLocal?.split('T')[0]))];
+      const availableDates = [...new Set(allActivities.map(a => {
+        const dateStr = a.startTimeLocal || '';
+        return dateStr.split('T')[0].split(' ')[0];
+      }))];
       logger.info(`[Skill:SyncLatestActivity] Available dates: ${availableDates.join(', ')}`);
-      
+
       return {
         success: true,
         workout: null,

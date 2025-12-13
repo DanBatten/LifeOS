@@ -1,4 +1,5 @@
-import { GarminConnect } from 'garmin-connect';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { GarminConnect } = require('garmin-connect');
 import { getLogger } from '@lifeos/core';
 
 const logger = getLogger();
@@ -14,6 +15,8 @@ import type {
   GarminLapData,
 } from './types.js';
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type GarminConnectClient = any;
 
 // Garmin Connect API URLs for custom requests
 const GARMIN_API = {
@@ -26,9 +29,18 @@ const GARMIN_API = {
 /**
  * Client for communicating with Garmin Connect using the garmin-connect npm package
  * This is a pure JavaScript implementation that works on Vercel serverless
+ *
+ * Token Persistence:
+ * The garmin-connect library requires OAuth tokens for authentication. On serverless
+ * environments like Vercel, we can't persist files, so tokens must be stored in
+ * environment variables:
+ * - GARMIN_OAUTH1_TOKEN: JSON string of OAuth1 token
+ * - GARMIN_OAUTH2_TOKEN: JSON string of OAuth2 token
+ *
+ * To generate tokens, run: npx ts-node scripts/generate-garmin-tokens.ts
  */
 export class GarminMCPClient {
-  private client: GarminConnect;
+  private client: GarminConnectClient;
   private initialized = false;
 
   constructor(config: GarminConfig = {}) {
@@ -43,6 +55,7 @@ export class GarminMCPClient {
 
   /**
    * Connect to Garmin (login)
+   * Attempts to use stored OAuth tokens first, falls back to password login
    */
   async connect(): Promise<void> {
     if (this.initialized) {
@@ -53,13 +66,57 @@ export class GarminMCPClient {
     logger.info('Connecting to Garmin Connect...');
 
     try {
+      // Try to load stored OAuth tokens from environment variables
+      const oauth1Str = process.env.GARMIN_OAUTH1_TOKEN;
+      const oauth2Str = process.env.GARMIN_OAUTH2_TOKEN;
+
+      if (oauth1Str && oauth2Str) {
+        try {
+          const oauth1 = JSON.parse(oauth1Str);
+          const oauth2 = JSON.parse(oauth2Str);
+          this.client.loadToken(oauth1, oauth2);
+          this.initialized = true;
+          logger.info('Loaded Garmin OAuth tokens from environment');
+          return;
+        } catch (parseError) {
+          logger.warn('Failed to parse stored OAuth tokens, falling back to login', {
+            error: String(parseError),
+          });
+        }
+      }
+
+      // Fall back to password login
       await this.client.login();
       this.initialized = true;
-      logger.info('Successfully connected to Garmin Connect');
+      logger.info('Successfully logged into Garmin Connect');
+
+      // Log the tokens so they can be saved (only in dev)
+      if (process.env.NODE_ENV === 'development') {
+        const tokens = this.client.exportToken();
+        logger.info('Garmin OAuth tokens (save these to env vars):', {
+          oauth1: JSON.stringify(tokens.oauth1),
+          oauth2: JSON.stringify(tokens.oauth2),
+        });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       logger.error('Failed to connect to Garmin Connect', null, { errorMsg: message });
       throw error;
+    }
+  }
+
+  /**
+   * Export current OAuth tokens for persistence
+   */
+  exportTokens(): { oauth1: string; oauth2: string } | null {
+    try {
+      const tokens = this.client.exportToken();
+      return {
+        oauth1: JSON.stringify(tokens.oauth1),
+        oauth2: JSON.stringify(tokens.oauth2),
+      };
+    } catch {
+      return null;
     }
   }
 
@@ -88,7 +145,7 @@ export class GarminMCPClient {
    */
   async listActivities(limit = 20): Promise<GarminActivity[]> {
     const activities = await this.client.getActivities(0, limit);
-    return activities.map(activity => this.normalizeActivitySummary(activity as unknown as Record<string, unknown>));
+    return activities.map((activity: Record<string, unknown>) => this.normalizeActivitySummary(activity));
   }
 
   /**
@@ -96,7 +153,7 @@ export class GarminMCPClient {
    */
   async listActivityIds(limit = 100): Promise<number[]> {
     const activities = await this.client.getActivities(0, limit);
-    return activities.map(a => a.activityId);
+    return activities.map((a: { activityId: number }) => a.activityId);
   }
 
   /**
@@ -104,9 +161,9 @@ export class GarminMCPClient {
    */
   async getActivitiesForDate(date: string): Promise<GarminActivity[]> {
     try {
-      const response = await this.client.get<unknown[]>(
+      const response = await this.client.get(
         `${GARMIN_API.ACTIVITIES_FOR_DATE}/${date}`
-      );
+      ) as unknown[];
 
       if (!Array.isArray(response)) {
         return [];
@@ -132,9 +189,9 @@ export class GarminMCPClient {
    */
   async getActivitySplits(activityId: number): Promise<GarminLapData[]> {
     try {
-      const response = await this.client.get<Record<string, unknown>>(
+      const response = await this.client.get(
         `${GARMIN_API.ACTIVITY_SPLITS}/${activityId}/splits`
-      );
+      ) as Record<string, unknown>;
       return this.normalizeSplitsResponse(response);
     } catch (error) {
       logger.debug('Failed to get activity splits', { activityId, error: String(error) });
@@ -154,11 +211,11 @@ export class GarminMCPClient {
     const allActivities = await this.client.getActivities(0, 100);
 
     return allActivities
-      .filter(activity => {
+      .filter((activity: { startTimeLocal: string }) => {
         const activityDate = activity.startTimeLocal.split('T')[0];
         return activityDate >= startDate && activityDate <= endDate;
       })
-      .map(activity => this.normalizeActivitySummary(activity as unknown as Record<string, unknown>));
+      .map((activity: Record<string, unknown>) => this.normalizeActivitySummary(activity));
   }
 
   // ===========================================
@@ -171,9 +228,9 @@ export class GarminMCPClient {
   async getDailySummary(date: string): Promise<GarminDailySummary> {
     try {
       // Use getUserSummary which provides daily stats
-      const response = await this.client.get<Record<string, unknown>>(
+      const response = await this.client.get(
         `${GARMIN_API.USER_SUMMARY}/${date}`
-      );
+      ) as Record<string, unknown>;
 
       return this.normalizeDailySummary(date, response);
     } catch (error) {
@@ -326,9 +383,9 @@ export class GarminMCPClient {
   async getBodyComposition(startDate: string, endDate?: string): Promise<GarminBodyComposition> {
     try {
       const end = endDate || startDate;
-      const response = await this.client.get<Record<string, unknown>>(
+      const response = await this.client.get(
         `${GARMIN_API.BODY_COMPOSITION}?startDate=${startDate}&endDate=${end}`
-      );
+      ) as Record<string, unknown>;
 
       return this.normalizeBodyComposition(startDate, response);
     } catch {
