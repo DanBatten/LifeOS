@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic';
+export const revalidate = 0; // Force no caching
 
 import { getSupabase } from '@/lib/supabase';
 import { getEnv } from '@/lib/env';
