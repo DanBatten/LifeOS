@@ -75,9 +75,19 @@ export class GarminMCPClient {
           const oauth1 = JSON.parse(oauth1Str);
           const oauth2 = JSON.parse(oauth2Str);
           this.client.loadToken(oauth1, oauth2);
-          this.initialized = true;
-          logger.info('Loaded Garmin OAuth tokens from environment');
-          return;
+
+          // Validate tokens by making a test request
+          try {
+            await this.client.getUserProfile();
+            this.initialized = true;
+            logger.info('Loaded and validated Garmin OAuth tokens from environment');
+            return;
+          } catch (validationError) {
+            logger.warn('OAuth tokens loaded but validation failed - tokens may be expired', {
+              error: String(validationError),
+            });
+            // Don't return - fall through to password login
+          }
         } catch (parseError) {
           logger.warn('Failed to parse stored OAuth tokens, falling back to login', {
             error: String(parseError),
