@@ -96,11 +96,20 @@ export async function syncGarminMetrics(
     // 2. Sleep Data
     try {
       const sleepData = await client.getSleepData(targetDate);
+      logger.info(`[Skill:SyncGarminMetrics] Sleep data received: ${JSON.stringify({
+        hasSleepData: !!sleepData,
+        sleepTimeSeconds: sleepData?.sleepTimeSeconds,
+        restingHeartRate: sleepData?.restingHeartRate,
+        rawKeys: sleepData ? Object.keys(sleepData) : [],
+      })}`);
       if (sleepData) {
         healthData.sleep_hours = sleepData.sleepTimeSeconds ? sleepData.sleepTimeSeconds / 3600 : null;
         // Resting HR from sleep data (preferred source)
         if (sleepData.restingHeartRate) {
           healthData.resting_hr = sleepData.restingHeartRate;
+          logger.info(`[Skill:SyncGarminMetrics] Set resting_hr to ${sleepData.restingHeartRate}`);
+        } else {
+          logger.warn(`[Skill:SyncGarminMetrics] No restingHeartRate in sleep data`);
         }
 
         const meta = healthData.metadata as Record<string, unknown>;

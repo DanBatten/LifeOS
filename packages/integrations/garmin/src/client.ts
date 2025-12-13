@@ -263,6 +263,10 @@ export class GarminMCPClient {
     const dateObj = new Date(date + 'T12:00:00');
     const sleepData = await this.client.getSleepData(dateObj);
 
+    // Debug logging for RHR troubleshooting
+    logger.info(`[GarminClient] Raw sleep data keys: ${Object.keys(sleepData || {}).join(', ')}`);
+    logger.info(`[GarminClient] Raw restingHeartRate: ${sleepData?.restingHeartRate}`);
+
     const dailySleep = sleepData.dailySleepDTO;
 
     return {
