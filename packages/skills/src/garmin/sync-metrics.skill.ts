@@ -98,11 +98,11 @@ export async function syncGarminMetrics(
       const sleepData = await client.getSleepData(targetDate);
       if (sleepData) {
         healthData.sleep_hours = sleepData.sleepTimeSeconds ? sleepData.sleepTimeSeconds / 3600 : null;
-        // restingHeartRate may come from sleep scores or daily summary (via raw data)
-        const sleepRaw = sleepData as unknown as Record<string, unknown>;
-        const restingHr = sleepRaw.restingHeartRate as number | undefined;
-        if (restingHr) healthData.resting_hr = restingHr;
-        
+        // Resting HR from sleep data (preferred source)
+        if (sleepData.restingHeartRate) {
+          healthData.resting_hr = sleepData.restingHeartRate;
+        }
+
         const meta = healthData.metadata as Record<string, unknown>;
         meta.garmin = {
           ...(meta.garmin as object || {}),
@@ -111,7 +111,7 @@ export async function syncGarminMetrics(
             lightMinutes: sleepData.lightSleepSeconds ? Math.round(sleepData.lightSleepSeconds / 60) : null,
             remMinutes: sleepData.remSleepSeconds ? Math.round(sleepData.remSleepSeconds / 60) : null,
             awakeMinutes: sleepData.awakeSleepSeconds ? Math.round(sleepData.awakeSleepSeconds / 60) : null,
-            restingHr: restingHr,
+            restingHr: sleepData.restingHeartRate,
             scores: sleepData.sleepScores,
             bodyBatteryChange: sleepData.bodyBatteryChange,
           },

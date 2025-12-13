@@ -170,6 +170,7 @@ export interface GarminSleepData {
   hrvStatus?: string;
   bodyBatteryChange?: number;
   restlessMomentsCount?: number;
+  restingHeartRate?: number;
 }
 
 export interface GarminSleepScores {

@@ -296,6 +296,7 @@ export class GarminMCPClient {
       hrvStatus: sleepData.hrvStatus,
       bodyBatteryChange: sleepData.bodyBatteryChange,
       restlessMomentsCount: sleepData.restlessMomentsCount,
+      restingHeartRate: sleepData.restingHeartRate,
     };
   }
 
