@@ -1,5 +1,5 @@
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { GarminConnect } = require('garmin-connect');
+import GarminConnectPkg from 'garmin-connect';
+const { GarminConnect } = GarminConnectPkg;
 import { getLogger } from '@lifeos/core';
 
 const logger = getLogger();
