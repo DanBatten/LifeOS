@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "installCommand": "npm install",
-  "buildCommand": "cd apps/web && npm run build",
+  "buildCommand": "npx turbo run build --filter=@lifeos/web",
   "outputDirectory": "apps/web/.next",
   "crons": [
     {
