@@ -5,6 +5,7 @@ import { runChatFlow, type ConversationMessage } from '@lifeos/workflows';
 import { getSupabase, getSupabaseService, insertRecord } from '@/lib/supabase';
 import { getEnv } from '@/lib/env';
 import { syncGarminMetrics, syncLatestActivity } from '@lifeos/skills';
+import { createGarminClient, mapActivityType, metersToMiles, formatDateString, type GarminActivity } from '@lifeos/garmin';
 
 /**
  * Context types that determine data loading and routing behavior:
@@ -16,8 +17,661 @@ import { syncGarminMetrics, syncLatestActivity } from '@lifeos/skills';
 const ChatRequestSchema = z.object({
   message: z.string().min(1),
   sessionId: z.string().uuid().nullish(),
-  context: z.enum(['default', 'post-run', 'health', 'planning']).optional(),
+  context: z.enum(['default', 'training', 'post-run', 'health', 'planning']).optional(),
 });
+
+type ChatCommandResult = {
+  response: string;
+  agentId?: string;
+  dataUpdated?: boolean;
+  actions?: Array<{
+    label: string;
+    command: string;
+    variant?: 'primary' | 'secondary' | 'danger';
+  }>;
+};
+
+type GarminImportProposal = {
+  kind: 'garmin_import_proposal';
+  createdAt: string;
+  sessionId: string;
+  window: { startDate: string; endDate: string };
+  matches: Array<{
+    plannedWorkoutId: string;
+    plannedDate: string;
+    plannedTitle: string;
+    prescribedDistanceMiles: number | null;
+    garminActivityId: string;
+    garminTitle: string;
+    garminDate: string;
+    garminDistanceMiles: number;
+    confidence: 'high' | 'medium';
+  }>;
+  extras: Array<{
+    garminActivityId: string;
+    garminTitle: string;
+    garminDate: string;
+    garminDistanceMiles: number;
+  }>;
+  missingPlanned: Array<{
+    plannedWorkoutId: string;
+    plannedDate: string;
+    plannedTitle: string;
+    prescribedDistanceMiles: number | null;
+  }>;
+};
+
+function dateStringInTz(date: Date, timezone: string): string {
+  return date.toLocaleDateString('en-CA', { timeZone: timezone });
+}
+
+function addDays(dateStr: string, days: number): string {
+  // dateStr is yyyy-mm-dd
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
+}
+
+function parseCommand(message: string): { cmd: string; args: string[]; flags: Set<string> } {
+  const parts = message.trim().split(/\s+/);
+  const cmd = parts[0].toLowerCase();
+  const args: string[] = [];
+  const flags = new Set<string>();
+  for (let i = 1; i < parts.length; i++) {
+    const p = parts[i];
+    if (p.startsWith('--')) flags.add(p.slice(2));
+    else args.push(p);
+  }
+  return { cmd, args, flags };
+}
+
+async function handleChatCommand(
+  message: string,
+  {
+    userId,
+    sessionId,
+    timezone,
+    supabaseService,
+    llmClient,
+    supabaseAnon,
+  }: {
+    userId: string;
+    sessionId: string;
+    timezone: string;
+    supabaseService: ReturnType<typeof getSupabaseService>;
+    llmClient: ReturnType<typeof createLLMClient>;
+    supabaseAnon: ReturnType<typeof getSupabase>;
+  }
+): Promise<ChatCommandResult | null> {
+  if (!message.trim().startsWith('/')) return null;
+
+  const { cmd, args, flags } = parseCommand(message);
+
+  if (cmd === '/help') {
+    return {
+      agentId: 'system',
+      response:
+        [
+          '### Commands',
+          '- **`/add-run`**: Pull your most recent Garmin run(s) and propose safe schedule updates (no writes until confirmed).',
+          '- **`/confirm <proposalId>`**: Apply the proposal created by `/add-run`.',
+          '- **`/confirm <proposalId> --skip-missing`**: Also mark unmatched planned runs in the window as skipped.',
+          '- **`/cancel <proposalId>`**: Mark a proposal as cancelled (no-op).',
+        ].join('\n'),
+    };
+  }
+
+  if (cmd === '/add-run') {
+    const today = dateStringInTz(new Date(), timezone);
+    const startDate = addDays(today, -3);
+    const endDate = today;
+    const wantsDetails = flags.has('details') || flags.has('verbose');
+
+    // 1) Load planned runs in window
+    const { data: plannedRows, error: plannedErr } = await supabaseService
+      .from('workouts')
+      .select('id, title, workout_type, status, scheduled_date, prescribed_distance_miles')
+      .eq('user_id', userId)
+      .eq('workout_type', 'run')
+      .eq('status', 'planned')
+      .gte('scheduled_date', startDate)
+      .lte('scheduled_date', endDate);
+
+    if (plannedErr) {
+      return { agentId: 'system', response: `Failed to load planned runs: ${plannedErr.message}` };
+    }
+
+    const planned = (plannedRows || []).map((w) => ({
+      id: w.id as string,
+      title: w.title as string,
+      date: w.scheduled_date as string,
+      prescribedDistanceMiles: (w.prescribed_distance_miles as number | null) ?? null,
+    }));
+
+    // 2) Load recent Garmin activities (read-only)
+    const client = createGarminClient();
+    let recentActivities: GarminActivity[] = [];
+    try {
+      await client.connect();
+      recentActivities = await client.listActivities(30);
+    } catch (e) {
+      return {
+        agentId: 'system',
+        response:
+          `I couldn’t connect to Garmin to pull activities.\n\n` +
+          `- If you’re running locally, confirm Garmin auth/tokens are set.\n` +
+          `- If you’re on Vercel, Garmin access may be unavailable in that environment.\n\n` +
+          `Error: ${e instanceof Error ? e.message : String(e)}`,
+      };
+    } finally {
+      client.disconnect();
+    }
+
+    const garminRuns = recentActivities
+      .filter((a) => mapActivityType(a.activityType?.typeKey || 'other') === 'run')
+      .map((a) => {
+        const date = (a.startTimeLocal || '').split('T')[0].split(' ')[0];
+        return {
+          id: String(a.activityId),
+          title: a.activityName,
+          date,
+          distanceMiles: Math.round(metersToMiles(a.distance) * 100) / 100,
+        };
+      })
+      .filter((a) => a.date >= startDate && a.date <= endDate);
+
+    // 3) Match Garmin runs to planned runs (same date; closest distance)
+    const plannedByDate = new Map<string, typeof planned>();
+    for (const p of planned) plannedByDate.set(p.date, [...(plannedByDate.get(p.date) || []), p]);
+
+    const matchedPlannedIds = new Set<string>();
+    const matches: GarminImportProposal['matches'] = [];
+    const extras: GarminImportProposal['extras'] = [];
+
+    for (const g of garminRuns) {
+      const candidates = plannedByDate.get(g.date) || [];
+      if (candidates.length === 0) {
+        extras.push({
+          garminActivityId: g.id,
+          garminTitle: g.title,
+          garminDate: g.date,
+          garminDistanceMiles: g.distanceMiles,
+        });
+        continue;
+      }
+
+      // choose best candidate by distance diff (or first if no prescribed)
+      let best = candidates[0];
+      let bestDiff = Number.POSITIVE_INFINITY;
+
+      for (const c of candidates) {
+        if (c.prescribedDistanceMiles == null) {
+          best = c;
+          bestDiff = 0.5; // neutral
+          break;
+        }
+        const diff = Math.abs(c.prescribedDistanceMiles - g.distanceMiles);
+        if (diff < bestDiff) {
+          best = c;
+          bestDiff = diff;
+        }
+      }
+
+      const confidence: 'high' | 'medium' =
+        best.prescribedDistanceMiles == null
+          ? 'medium'
+          : bestDiff <= 0.75
+            ? 'high'
+            : 'medium';
+
+      matchedPlannedIds.add(best.id);
+      matches.push({
+        plannedWorkoutId: best.id,
+        plannedDate: best.date,
+        plannedTitle: best.title,
+        prescribedDistanceMiles: best.prescribedDistanceMiles,
+        garminActivityId: g.id,
+        garminTitle: g.title,
+        garminDate: g.date,
+        garminDistanceMiles: g.distanceMiles,
+        confidence,
+      });
+    }
+
+    const missingPlanned: GarminImportProposal['missingPlanned'] = planned
+      .filter((p) => !matchedPlannedIds.has(p.id))
+      .map((p) => ({
+        plannedWorkoutId: p.id,
+        plannedDate: p.date,
+        plannedTitle: p.title,
+        prescribedDistanceMiles: p.prescribedDistanceMiles,
+      }));
+
+    const proposal: GarminImportProposal = {
+      kind: 'garmin_import_proposal',
+      createdAt: new Date().toISOString(),
+      sessionId,
+      window: { startDate, endDate },
+      matches,
+      extras,
+      missingPlanned,
+    };
+
+    // 4) Persist proposal for confirmation
+    const { data: entry, error: entryErr } = await supabaseService
+      .from('whiteboard_entries')
+      .insert({
+        user_id: userId,
+        agent_id: 'system',
+        entry_type: 'question',
+        visibility: 'all',
+        title: 'Garmin import proposal',
+        content: 'Pending Garmin import proposal created via /add-run',
+        structured_data: proposal,
+        requires_response: true,
+        // expire quickly so stale proposals don’t surprise you later
+        expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        tags: ['chat-command', 'proposal', 'garmin-import'],
+        metadata: { sessionId },
+      })
+      .select('id')
+      .single();
+
+    if (entryErr || !entry) {
+      return { agentId: 'system', response: `Failed to store proposal: ${entryErr?.message || 'unknown error'}` };
+    }
+
+    const proposalId = entry.id as string;
+
+    const lines: string[] = [];
+
+    // Conversational, compact default
+    lines.push(`Got it — I pulled your recent Garmin activity and checked it against your plan (**${startDate} → ${endDate}**).`);
+
+    if (matches.length === 0 && extras.length === 0) {
+      lines.push('');
+      lines.push(`I didn’t find any Garmin runs in that window. If you ran today, make sure your watch has synced to Garmin Connect, then try again.`);
+      lines.push('');
+      lines.push(`Tip: you can also run \`/add-run --details\` to see exactly what I’m seeing.`);
+    } else {
+      const parts: string[] = [];
+      if (matches.length > 0) parts.push(`**${matches.length}** match${matches.length === 1 ? '' : 'es'} to planned runs`);
+      if (extras.length > 0) parts.push(`**${extras.length}** run${extras.length === 1 ? '' : 's'} that look unscheduled (rest day)`);
+      if (missingPlanned.length > 0) parts.push(`**${missingPlanned.length}** planned run${missingPlanned.length === 1 ? '' : 's'} with no Garmin match`);
+
+      lines.push('');
+      lines.push(`Here’s what I found: ${parts.join(', ')}.`);
+
+      // Show a tiny bit of helpful context without becoming a dump
+      if (extras.length > 0) {
+        const e = extras[0];
+        lines.push('');
+        lines.push(`For example: I see an extra run on **${e.garminDate}** (${e.garminDistanceMiles}mi — “${e.garminTitle}”).`);
+      } else if (matches.length > 0) {
+        const m = matches[0];
+        lines.push('');
+        lines.push(`For example: **${m.plannedDate}** looks like a match (${m.garminDistanceMiles}mi on Garmin).`);
+      }
+
+      if (missingPlanned.length > 0) {
+        lines.push('');
+        lines.push(`If you skipped the unmatched planned runs, you can choose the option that marks them **skipped** too.`);
+      }
+
+      if (wantsDetails) {
+        lines.push('');
+        lines.push('### Details');
+
+        if (matches.length > 0) {
+          lines.push('**Matches**');
+          for (const m of matches) {
+            const plannedDist = m.prescribedDistanceMiles != null ? `${m.prescribedDistanceMiles}mi planned` : 'planned distance unknown';
+            lines.push(
+              `- ${m.plannedDate}: **${m.plannedTitle}** ← Garmin **${m.garminDistanceMiles}mi** (${plannedDist}, confidence: **${m.confidence}**)`
+            );
+          }
+          lines.push('');
+        }
+
+        if (extras.length > 0) {
+          lines.push('**Extra Garmin runs (rest day / unscheduled)**');
+          for (const e of extras) {
+            lines.push(`- ${e.garminDate}: **${e.garminDistanceMiles}mi** — “${e.garminTitle}”`);
+          }
+          lines.push('');
+        }
+
+        if (missingPlanned.length > 0) {
+          lines.push('**Planned runs with no Garmin match**');
+          for (const p of missingPlanned) {
+            const dist = p.prescribedDistanceMiles != null ? `${p.prescribedDistanceMiles}mi` : '';
+            lines.push(`- ${p.plannedDate}: **${p.plannedTitle}** ${dist}`.trim());
+          }
+          lines.push('');
+        }
+      }
+
+      lines.push('');
+      lines.push('What do you want me to do?');
+    }
+
+    return {
+      agentId: 'system',
+      response: lines.join('\n'),
+      actions: [
+        { label: 'Apply import', command: `/confirm ${proposalId}`, variant: 'primary' },
+        { label: 'Apply + mark missed as skipped', command: `/confirm ${proposalId} --skip-missing`, variant: 'secondary' },
+        { label: 'Cancel', command: `/cancel ${proposalId}`, variant: 'danger' },
+      ],
+    };
+  }
+
+  if (cmd === '/cancel') {
+    const proposalId = args[0];
+    if (!proposalId) return { agentId: 'system', response: 'Usage: `/cancel <proposalId>`' };
+
+    await supabaseService
+      .from('whiteboard_entries')
+      .update({ is_actioned: true, actioned_at: new Date().toISOString(), metadata: { cancelled: true, sessionId } })
+      .eq('id', proposalId)
+      .eq('user_id', userId);
+
+    return { agentId: 'system', response: `Cancelled proposal \`${proposalId}\`.` };
+  }
+
+  if (cmd === '/confirm') {
+    const proposalId = args[0];
+    if (!proposalId) return { agentId: 'system', response: 'Usage: `/confirm <proposalId> [--skip-missing]`' };
+
+    const { data: entry, error: loadErr } = await supabaseService
+      .from('whiteboard_entries')
+      .select('id, structured_data, is_actioned, expires_at')
+      .eq('id', proposalId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (loadErr || !entry) {
+      return { agentId: 'system', response: `Could not load proposal \`${proposalId}\`.` };
+    }
+
+    if (entry.is_actioned) {
+      return { agentId: 'system', response: `Proposal \`${proposalId}\` is already actioned (or cancelled).` };
+    }
+    if (entry.expires_at && new Date(entry.expires_at as string).getTime() < Date.now()) {
+      return { agentId: 'system', response: `Proposal \`${proposalId}\` has expired. Run \`/add-run\` again.` };
+    }
+
+    const proposal = entry.structured_data as GarminImportProposal;
+    if (!proposal || proposal.kind !== 'garmin_import_proposal') {
+      return { agentId: 'system', response: `Proposal \`${proposalId}\` is not a Garmin import proposal.` };
+    }
+
+    // Connect to Garmin and fetch full details for all referenced activities
+    const client = createGarminClient();
+    const neededIds = new Set<string>([
+      ...proposal.matches.map((m) => m.garminActivityId),
+      ...proposal.extras.map((e) => e.garminActivityId),
+    ]);
+
+    const activityById = new Map<string, { detail: any; splits: unknown[] }>();
+    try {
+      await client.connect();
+      for (const id of neededIds) {
+        const numericId = Number(id);
+        const detail = await client.getActivity(numericId);
+        const splits = await client.getActivitySplits(numericId);
+        activityById.set(id, { detail, splits });
+      }
+    } catch (e) {
+      return { agentId: 'system', response: `Failed to fetch activity details from Garmin: ${e instanceof Error ? e.message : String(e)}` };
+    } finally {
+      client.disconnect();
+    }
+
+    // Helper: only update columns that exist on the current row; avoid schema drift issues.
+    function pickExisting(update: Record<string, unknown>, row: Record<string, unknown>) {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(update)) if (k in row) out[k] = v;
+      return out;
+    }
+
+    const applied: string[] = [];
+    let lastWorkoutIdForAnalysis: string | null = null;
+
+    // 1) Apply matches (update planned -> completed)
+    for (const m of proposal.matches) {
+      const { data: row, error: rowErr } = await supabaseService
+        .from('workouts')
+        .select('*')
+        .eq('id', m.plannedWorkoutId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (rowErr || !row) continue;
+
+      const bundle = activityById.get(m.garminActivityId);
+      if (!bundle) continue;
+
+      const startTimeLocal = (bundle.detail.startTimeLocal || '').split('T')[0].split(' ')[0];
+      // Safety: only apply if date matches
+      if (startTimeLocal !== m.plannedDate) continue;
+
+      const durationMin = bundle.detail.duration ? Math.round(bundle.detail.duration / 60) : null;
+      const completedAt = bundle.detail.duration
+        ? new Date(new Date(bundle.detail.startTimeLocal).getTime() + bundle.detail.duration * 1000).toISOString()
+        : new Date().toISOString();
+
+      const mergedMetadata = {
+        ...(row.metadata && typeof row.metadata === 'object' ? (row.metadata as Record<string, unknown>) : {}),
+        garmin: bundle.detail,
+        garmin_activity_id: m.garminActivityId,
+        actual_distance_miles: Math.round(metersToMiles(bundle.detail.distance || 0) * 100) / 100,
+        laps: bundle.splits,
+        syncedAt: new Date().toISOString(),
+      };
+
+      const desiredUpdate: Record<string, unknown> = {
+        status: 'completed',
+        completed_at: completedAt,
+        actual_duration_minutes: durationMin,
+        avg_heart_rate: bundle.detail.averageHR ?? null,
+        max_heart_rate: bundle.detail.maxHR ?? null,
+        calories_burned: bundle.detail.calories ?? null,
+        external_id: String(m.garminActivityId),
+        source: 'garmin',
+        metadata: mergedMetadata,
+        updated_at: new Date().toISOString(),
+      };
+
+      const safeUpdate = pickExisting(desiredUpdate, row as Record<string, unknown>);
+
+      // Retry-drop for "column does not exist" cache drift
+      let payload = { ...safeUpdate };
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const { error } = await supabaseService
+          .from('workouts')
+          .update(payload)
+          .eq('id', m.plannedWorkoutId)
+          .eq('user_id', userId);
+
+        if (!error) break;
+        const msg = (error as { message?: string; code?: string }).message || '';
+        const code = (error as { code?: string }).code;
+        const mm = msg.match(/column\s+workouts\.([a-zA-Z0-9_]+)\s+does not exist/);
+        const missing = mm?.[1];
+        if (code === '42703' && missing && missing in payload) {
+          delete (payload as Record<string, unknown>)[missing];
+          continue;
+        }
+        break;
+      }
+
+      applied.push(`- Updated planned run **${m.plannedDate}** → completed (workoutId \`${m.plannedWorkoutId}\`)`);
+      lastWorkoutIdForAnalysis = m.plannedWorkoutId;
+    }
+
+    // 2) Apply extras (insert completed run on rest day)
+    for (const e of proposal.extras) {
+      const bundle = activityById.get(e.garminActivityId);
+      if (!bundle) continue;
+
+      const activityDate = (bundle.detail.startTimeLocal || '').split('T')[0].split(' ')[0];
+
+      const durationMin = bundle.detail.duration ? Math.round(bundle.detail.duration / 60) : null;
+      const completedAt = bundle.detail.duration
+        ? new Date(new Date(bundle.detail.startTimeLocal).getTime() + bundle.detail.duration * 1000).toISOString()
+        : new Date().toISOString();
+
+      const insertData: Record<string, unknown> = {
+        user_id: userId,
+        title: bundle.detail.activityName || `${activityDate} Run`,
+        workout_type: 'run',
+        status: 'completed',
+        scheduled_date: activityDate,
+        completed_at: completedAt,
+        actual_duration_minutes: durationMin,
+        avg_heart_rate: bundle.detail.averageHR ?? null,
+        max_heart_rate: bundle.detail.maxHR ?? null,
+        calories_burned: bundle.detail.calories ?? null,
+        external_id: String(e.garminActivityId),
+        source: 'garmin',
+        metadata: {
+          garmin: bundle.detail,
+          garmin_activity_id: e.garminActivityId,
+          actual_distance_miles: Math.round(metersToMiles(bundle.detail.distance || 0) * 100) / 100,
+          laps: bundle.splits,
+          syncedAt: new Date().toISOString(),
+        },
+      };
+
+      // Insert only base columns to avoid migration mismatch
+      const minimalInsert = {
+        user_id: insertData.user_id,
+        title: insertData.title,
+        workout_type: insertData.workout_type,
+        status: insertData.status,
+        scheduled_date: insertData.scheduled_date,
+        completed_at: insertData.completed_at,
+        actual_duration_minutes: insertData.actual_duration_minutes,
+        avg_heart_rate: insertData.avg_heart_rate,
+        max_heart_rate: insertData.max_heart_rate,
+        calories_burned: insertData.calories_burned,
+        external_id: insertData.external_id,
+        source: insertData.source,
+        metadata: insertData.metadata,
+      };
+
+      const { data: created, error: insertErr } = await supabaseService
+        .from('workouts')
+        .insert(minimalInsert)
+        .select('id')
+        .single();
+
+      if (!insertErr && created?.id) {
+        applied.push(`- Added completed run on **${activityDate}** (workoutId \`${created.id}\`)`);
+        lastWorkoutIdForAnalysis = created.id as string;
+      }
+    }
+
+    // 3) Optionally mark missing planned as skipped
+    if (flags.has('skip-missing')) {
+      for (const p of proposal.missingPlanned) {
+        await supabaseService
+          .from('workouts')
+          .update({ status: 'skipped', updated_at: new Date().toISOString() })
+          .eq('id', p.plannedWorkoutId)
+          .eq('user_id', userId);
+        applied.push(`- Marked planned run **${p.plannedDate}** as skipped (workoutId \`${p.plannedWorkoutId}\`)`);
+      }
+    }
+
+    // Mark proposal as actioned
+    await supabaseService
+      .from('whiteboard_entries')
+      .update({ is_actioned: true, actioned_at: new Date().toISOString(), metadata: { sessionId, applied: true } })
+      .eq('id', proposalId)
+      .eq('user_id', userId);
+
+    // Optionally: generate coach notes for the last affected workout (keeps experience “chat-first”)
+    let coachNotesBlock = '';
+    if (lastWorkoutIdForAnalysis) {
+      try {
+        const { data: workoutRow } = await supabaseService
+          .from('workouts')
+          .select('*')
+          .eq('id', lastWorkoutIdForAnalysis)
+          .single();
+
+        if (workoutRow) {
+          const metadata = (workoutRow.metadata || {}) as Record<string, unknown>;
+          const syncedWorkout = {
+            id: workoutRow.id,
+            title: workoutRow.title,
+            workoutType: workoutRow.workout_type,
+            scheduledDate: workoutRow.scheduled_date,
+            status: workoutRow.status,
+            prescribedDistanceMiles: workoutRow.prescribed_distance_miles ?? null,
+            prescribedPacePerMile: workoutRow.prescribed_pace_per_mile ?? null,
+            prescribedDescription: workoutRow.prescribed_description ?? null,
+            actualDurationMinutes: workoutRow.actual_duration_minutes ?? null,
+            actualDistanceMiles: (metadata.actual_distance_miles as number | null) ?? null,
+            actualPacePerMile: (metadata.actual_pace as string | null) ?? null,
+            avgHeartRate: workoutRow.avg_heart_rate ?? null,
+            maxHeartRate: workoutRow.max_heart_rate ?? null,
+            calories: workoutRow.calories_burned ?? null,
+            elevationGainFt: (metadata.elevation_gain_ft as number | null) ?? null,
+            cadenceAvg: (metadata.cadence_avg as number | null) ?? null,
+            splits: (metadata.laps as unknown[]) || [],
+            coachNotes: workoutRow.coach_notes ?? null,
+            athleteFeedback: workoutRow.athlete_feedback ?? null,
+            perceivedExertion: workoutRow.perceived_exertion ?? null,
+            matchedToPlannedWorkout: !!(workoutRow.plan_id || workoutRow.week_number),
+            garminActivityId: workoutRow.external_id ?? null,
+          };
+
+          const analysis = await runChatFlow(
+            supabaseAnon,
+            llmClient,
+            userId,
+            'Analyze the imported run and write concise coach notes (2-3 short paragraphs + 3 bullet “Next time” tips).',
+            timezone,
+            { context: 'post-run', syncedWorkout }
+          );
+
+          await supabaseService
+            .from('workouts')
+            .update({ coach_notes: analysis.response, updated_at: new Date().toISOString() })
+            .eq('id', lastWorkoutIdForAnalysis)
+            .eq('user_id', userId);
+
+          coachNotesBlock = `\n\n### Coach notes\n${analysis.response}`;
+        }
+      } catch {
+        // Best-effort; don’t fail the command.
+      }
+    }
+
+    return {
+      agentId: 'system',
+      dataUpdated: true,
+      response: [
+        `All set — I pulled the Garmin run${neededIds.size === 1 ? '' : 's'} and updated your schedule.`,
+        '',
+        applied.length
+          ? `Here’s what I changed:`
+          : `I didn’t end up making any changes (nothing matched safely).`,
+        ...(applied.length ? applied.slice(0, 5) : []),
+        applied.length > 5 ? `- …and ${applied.length - 5} more` : null,
+      ]
+        .filter(Boolean)
+        .join('\n') + coachNotesBlock,
+    };
+  }
+
+  // Unknown command - let the LLM handle it
+  return null;
+}
 
 /**
  * Detect if the user wants to log/sync a run from Garmin
@@ -61,7 +715,45 @@ export async function POST(request: NextRequest) {
     // Get or create session ID
     const currentSessionId = sessionId || crypto.randomUUID();
 
-    // Detect if user wants to log a run (auto-upgrade to post-run context)
+    // Handle deterministic slash commands before any agent logic.
+    const commandResult = await handleChatCommand(message, {
+      userId: env.USER_ID,
+      sessionId: currentSessionId,
+      timezone: env.TIMEZONE,
+      supabaseService,
+      llmClient,
+      supabaseAnon: supabase,
+    });
+
+    if (commandResult) {
+      // Save chat messages to database
+      await insertRecord('chat_messages', {
+        user_id: env.USER_ID,
+        session_id: currentSessionId,
+        role: 'user',
+        content: message,
+      });
+
+      await insertRecord('chat_messages', {
+        user_id: env.USER_ID,
+        session_id: currentSessionId,
+        role: 'assistant',
+        content: commandResult.response,
+        responding_agent_id: commandResult.agentId || 'system',
+      });
+
+      return NextResponse.json({
+        success: true,
+        sessionId: currentSessionId,
+        response: commandResult.response,
+        agentId: commandResult.agentId || 'system',
+        duration: Date.now() - startTime,
+        dataUpdated: commandResult.dataUpdated || false,
+        actions: commandResult.actions || [],
+      });
+    }
+
+    // Detect if user wants to log/sync a run (auto-upgrade to post-run context)
     const wantsToLogRun = detectRunLoggingIntent(message);
     const effectiveContext = wantsToLogRun ? 'post-run' : (context || 'default');
 

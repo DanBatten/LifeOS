@@ -46,7 +46,7 @@ export interface ChatFlowResult {
  */
 export interface ChatFlowOptions {
   conversationHistory?: ConversationMessage[];
-  context?: 'default' | 'post-run' | 'health' | 'planning';
+  context?: 'default' | 'training' | 'post-run' | 'health' | 'planning';
   syncedWorkout?: {
     id: string;
     title: string;
@@ -104,6 +104,26 @@ export async function runChatFlow(
     logger.info(`[Workflow:ChatFlow] Post-run context: routed to training-coach`);
     if (options.syncedWorkout) {
       logger.info(`[Workflow:ChatFlow] Synced workout available: ${options.syncedWorkout.title}`);
+    }
+  } else if (pageContext === 'training') {
+    // Training context: Prefer training coach unless message clearly indicates health-only
+    const quickResult = quickRoute(message);
+    if (quickResult && quickResult.agentId === 'health-agent') {
+      routeResult = {
+        agentId: 'health-agent',
+        confidence: 0.85,
+        reasoning: 'Training context but explicit health query - routing to health agent',
+        routingTimeMs: 0,
+      };
+      logger.info(`[Workflow:ChatFlow] Training context but health query: routed to health-agent`);
+    } else {
+      routeResult = {
+        agentId: 'training-coach',
+        confidence: 0.9,
+        reasoning: 'Training page context - prioritizing training coach',
+        routingTimeMs: 0,
+      };
+      logger.info(`[Workflow:ChatFlow] Training context: routed to training-coach`);
     }
   } else if (pageContext === 'health') {
     // Health context: Prefer health agent unless message clearly indicates training

@@ -97,3 +97,5 @@ AND c.column_name IN ('avg_hr', 'max_hr', 'coach_notes', 'personal_notes', 'trai
 ORDER BY c.column_name;
 
 
+
+

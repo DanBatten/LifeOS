@@ -17,6 +17,11 @@ export function FloatingChatBar({ contextOverride }: FloatingChatBarProps) {
   const pathname = usePathname();
   const router = useRouter();
 
+  // Run Companion has an inline chat panel; hide the floating bar.
+  if (pathname.startsWith('/run-companion') || pathname === '/') {
+    return null;
+  }
+
   // Get context configuration based on current page path
   const pageContext = getChatContextForPath(pathname);
   const contextConfig = { ...pageContext, ...contextOverride };

@@ -1,10 +1,13 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import { IBM_Plex_Sans } from 'next/font/google';
 import './globals.css';
 import { FloatingChatBar } from '@/components/chat/FloatingChatBar';
 import { Providers } from '@/providers';
 
-const inter = Inter({ subsets: ['latin'] });
+const ibmPlexSans = IBM_Plex_Sans({
+  subsets: ['latin'],
+  weight: ['300', '400'],
+});
 
 export const metadata: Metadata = {
   title: 'LifeOS',
@@ -25,7 +28,7 @@ export default function RootLayout({
 
   return (
     <html lang="en">
-      <body className={inter.className}>
+      <body className={ibmPlexSans.className}>
         <Providers timezone={timezone} userName="Dan">
           {children}
           <FloatingChatBar />

@@ -3,12 +3,14 @@
 import { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { ChatContextConfig } from '@/lib/chat-context';
+import { ChatActions, type ChatAction } from './ChatActions';
 
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   agentId?: string;
+  actions?: ChatAction[];
   timestamp: Date;
 }
 
@@ -17,7 +19,7 @@ interface ChatModalProps {
   onClose: () => void;
   initialMessage?: string;
   /** API context type for backend routing */
-  context?: 'default' | 'post-run' | 'health' | 'planning';
+  context?: 'default' | 'training' | 'post-run' | 'health' | 'planning';
   /** Full context config for UI customization */
   contextConfig?: ChatContextConfig;
   /** Callback when data has been updated (e.g., workout synced) */
@@ -54,11 +56,14 @@ export function ChatModal({ isOpen, onClose, initialMessage, context = 'default'
   const headerTitle = contextConfig?.type === 'post-run' ? 'Post-Run Check-in'
     : contextConfig?.type === 'health' ? 'Health Advisor'
     : contextConfig?.type === 'planning' ? 'Planning Assistant'
+    : contextConfig?.type === 'training' ? 'Run Coach'
     : 'LifeOS Chat';
 
   // Suggestions based on context type
   const suggestions = context === 'post-run' || contextConfig?.type === 'post-run'
     ? ["Just finished my run!", "Felt great today", "Struggled with today's workout"]
+    : context === 'training' || contextConfig?.type === 'training'
+    ? ["What’s my next workout?", "How should I pace today?", "Am I recovering well?"]
     : context === 'health' || contextConfig?.type === 'health'
     ? ["How's my recovery today?", "Analyze my sleep this week", "Am I overtrained?"]
     : context === 'planning' || contextConfig?.type === 'planning'
@@ -141,13 +146,14 @@ export function ChatModal({ isOpen, onClose, initialMessage, context = 'default'
           role: 'assistant',
           content: data.response,
           agentId: data.agentId,
+          actions: Array.isArray(data.actions) ? (data.actions as ChatAction[]) : undefined,
           timestamp: new Date(),
         };
 
         setMessages((prev) => [...prev, assistantMessage]);
 
-        // For post-run context, notify parent that data was updated (workout synced)
-        if (context === 'post-run' && onDataUpdated) {
+        // If the backend indicates data changed, let the parent refresh.
+        if (data.dataUpdated && onDataUpdated) {
           onDataUpdated();
         }
       } else {
@@ -278,9 +284,17 @@ export function ChatModal({ isOpen, onClose, initialMessage, context = 'default'
                   </div>
                 )}
                 {message.role === 'assistant' ? (
-                  <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-2 prose-headings:mt-3 prose-headings:mb-1 prose-li:my-0.5">
-                    <ReactMarkdown>{message.content}</ReactMarkdown>
-                  </div>
+                  <>
+                    <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-2 prose-headings:mt-3 prose-headings:mb-1 prose-li:my-0.5">
+                      <ReactMarkdown>{message.content}</ReactMarkdown>
+                    </div>
+                    <ChatActions
+                      actions={message.actions}
+                      disabled={isLoading}
+                      onSelect={(a) => sendMessage(a.command)}
+                      tone="default"
+                    />
+                  </>
                 ) : (
                   <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
                 )}
