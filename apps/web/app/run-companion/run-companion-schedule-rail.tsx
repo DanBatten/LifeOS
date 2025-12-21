@@ -142,11 +142,12 @@ function WorkoutCard({
     const paceRange = formatPaceRange(workout.prescribedPacePerMile || null) || '8-8:15';
     const shoeLabel = 'Daily Trainer';
     const shoeName = 'Adidas Adizero Evo SL';
+    const todayLabel = isLong ? 'TODAYS LONG RUN' : isTempo ? 'TODAYS TEMPO RUN' : isRest ? 'TODAYS REST DAY' : 'TODAYS RUN';
 
     return (
       <div className="rounded-lg border border-black/10 bg-[#ff5a2f] p-5 shadow-sm">
         <div className="flex items-start justify-between gap-3">
-          <div className="text-[18px] font-normal tracking-wide text-[#4b2a24]">TODAYS EASY RUN</div>
+          <div className="text-[18px] font-normal tracking-wide text-[#4b2a24]">{todayLabel}</div>
           <div className="flex items-center gap-2">
             <span className="text-[12px] font-normal px-3 py-1 rounded bg-white/60 text-[#4b2a24]">Week 11</span>
             <span className="text-[12px] font-normal px-3 py-1 rounded bg-white/60 text-[#4b2a24]">
@@ -319,13 +320,14 @@ export function RunCompanionScheduleRail({ workouts }: { workouts: SerializedWor
   const workoutsByDate = useMemo(() => groupWorkoutsByDate(workouts), [workouts]);
 
   const nextPlanned = useMemo(() => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+    // IMPORTANT: avoid `new Date('YYYY-MM-DD')` comparisons (UTC parsing causes off-by-one in local time).
+    // Compare using YYYY-MM-DD strings instead.
+    const todayKey = toLocalDateString(new Date());
     const sorted = [...workouts]
       .filter((w) => w.scheduledDate)
-      .sort((a, b) => (a.scheduledDate || '').localeCompare(b.scheduledDate || ''));
+      .sort((a, b) => toLocalDateString(a.scheduledDate || '').localeCompare(toLocalDateString(b.scheduledDate || '')));
     return (
-      sorted.find((w) => w.scheduledDate && new Date(w.scheduledDate) >= todayStart && w.status === 'planned') ||
+      sorted.find((w) => w.scheduledDate && toLocalDateString(w.scheduledDate) >= todayKey && w.status === 'planned') ||
       null
     );
   }, [workouts]);

@@ -5,7 +5,13 @@ import { runChatFlow, type ConversationMessage } from '@lifeos/workflows';
 import { getSupabase, getSupabaseService, insertRecord } from '@/lib/supabase';
 import { getEnv } from '@/lib/env';
 import { syncGarminMetrics, syncLatestActivity } from '@lifeos/skills';
-import { createGarminClient, mapActivityType, metersToMiles, formatDateString, type GarminActivity } from '@lifeos/garmin';
+import {
+  createGarminClient,
+  createGarminSyncService,
+  mapActivityType,
+  metersToMiles,
+  type GarminActivity,
+} from '@lifeos/garmin';
 
 /**
  * Context types that determine data loading and routing behavior:
@@ -115,11 +121,119 @@ async function handleChatCommand(
         [
           '### Commands',
           '- **`/add-run`**: Pull your most recent Garmin run(s) and propose safe schedule updates (no writes until confirmed).',
+          '- **`/sync-garmin`**: Manually pull the latest Garmin health metrics (sleep/HRV/resting HR/etc.) and refresh the UI.',
           '- **`/confirm <proposalId>`**: Apply the proposal created by `/add-run`.',
           '- **`/confirm <proposalId> --skip-missing`**: Also mark unmatched planned runs in the window as skipped.',
           '- **`/cancel <proposalId>`**: Mark a proposal as cancelled (no-op).',
         ].join('\n'),
     };
+  }
+
+  if (cmd === '/sync-garmin') {
+    const daysBack = Number(args[0] || (flags.has('days') ? NaN : 1));
+    const effectiveDaysBack = Number.isFinite(daysBack) && daysBack > 0 ? Math.min(daysBack, 14) : 1;
+
+    // quick env sanity checks
+    const envUrl = process.env.SUPABASE_URL;
+    void envUrl; // supabaseService already constructed; keep for future diagnostics
+
+    // Garmin credentials are required for the sync service
+    const envEmail = process.env.GARMIN_EMAIL || process.env.GARMIN_EMAIL_FILE;
+    if (!envEmail) {
+      return {
+        agentId: 'system',
+        response:
+          `I can’t run a Garmin sync right now because Garmin credentials aren’t configured in this environment.\n\n` +
+          `Set \`GARMIN_EMAIL\`/\`GARMIN_PASSWORD\` (or the *_FILE variants) and try again.`,
+      };
+    }
+
+    // Create a sync log (best-effort; helps debug cron failures)
+    let syncLogId: string | null = null;
+    try {
+      const { data: syncLog } = await supabaseService
+        .from('garmin_sync_log')
+        .insert({
+          user_id: userId,
+          sync_type: 'manual',
+          sync_start: new Date().toISOString(),
+          date_range_start: addDays(dateStringInTz(new Date(), timezone), -(effectiveDaysBack - 1)),
+          date_range_end: dateStringInTz(new Date(), timezone),
+          status: 'running',
+        })
+        .select('id')
+        .single();
+      syncLogId = (syncLog?.id as string) || null;
+    } catch {
+      // ignore
+    }
+
+    try {
+      const syncService = createGarminSyncService(supabaseService, userId, {
+        email: process.env.GARMIN_EMAIL,
+        password: process.env.GARMIN_PASSWORD,
+        emailFile: process.env.GARMIN_EMAIL_FILE,
+        passwordFile: process.env.GARMIN_PASSWORD_FILE,
+      });
+
+      const result = await syncService.sync({
+        // User asked for health metrics; keep activities on too (harmless, and keeps DB consistent)
+        syncActivities: true,
+        syncSleep: true,
+        syncDailySummary: true,
+        syncBodyComposition: false,
+        daysBack: effectiveDaysBack,
+      });
+
+      if (syncLogId) {
+        await supabaseService
+          .from('garmin_sync_log')
+          .update({
+            sync_end: new Date().toISOString(),
+            activities_synced: result.activitiesSynced,
+            health_snapshots_synced: result.healthSnapshotsSynced,
+            status: result.errors.length > 0 ? 'partial' : 'completed',
+            error_message: result.errors.length > 0 ? result.errors[0] : null,
+            error_details: result.errors.length > 0 ? { errors: result.errors } : null,
+          })
+          .eq('id', syncLogId);
+      }
+
+      const lines: string[] = [];
+      lines.push(`Okay — I just pulled fresh Garmin data for the last **${effectiveDaysBack}** day${effectiveDaysBack === 1 ? '' : 's'}.`);
+      lines.push('');
+      lines.push(`- Health metrics updated: **${result.healthSnapshotsSynced}** day${result.healthSnapshotsSynced === 1 ? '' : 's'}`);
+      lines.push(`- Activities synced: **${result.activitiesSynced}**`);
+      if (result.errors.length > 0) {
+        lines.push('');
+        lines.push(`I hit a small issue during the sync:`);
+        lines.push(`- ${result.errors[0]}`);
+      }
+      lines.push('');
+      lines.push(`Refresh should happen automatically — if not, refresh the page once.`);
+
+      return {
+        agentId: 'system',
+        dataUpdated: true,
+        response: lines.join('\n'),
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (syncLogId) {
+        await supabaseService
+          .from('garmin_sync_log')
+          .update({
+            sync_end: new Date().toISOString(),
+            status: 'failed',
+            error_message: msg,
+          })
+          .eq('id', syncLogId);
+      }
+      return {
+        agentId: 'system',
+        response: `Garmin sync failed: ${msg}`,
+      };
+    }
   }
 
   if (cmd === '/add-run') {
