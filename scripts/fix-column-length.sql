@@ -10,3 +10,4 @@ WHERE table_name = 'workouts' AND column_name = 'prescribed_pace_per_mile';
 
 
 
+

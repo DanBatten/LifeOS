@@ -462,3 +462,4 @@ SELECT COUNT(*) as total_workouts FROM workouts WHERE user_id = '00000000-0000-0
 
 
 
+

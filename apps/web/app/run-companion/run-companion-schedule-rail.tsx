@@ -40,8 +40,43 @@ function shortTitle(title: string) {
   return title.replace(/^Week \d+\s*[—-]\s*\w+:\s*/i, '').trim();
 }
 
+/**
+ * Extract just the pace from various formats:
+ * - Simple: "6:30/mi" → "6:30"
+ * - Range: "6:30-6:35/mi" → "6:30-6:35"
+ * - Structured: "2 mi WU → 6 mi @ 6:30-6:35/mi → 1 mi CD" → "6:30-6:35"
+ * - Without suffix: "2 mi WU → 6 mi @ 6:30" → "6:30"
+ */
 function formatPace(pace?: string | null) {
   if (!pace) return null;
+  
+  // If it looks like a structured workout (contains arrows or @), extract the pace portion
+  if (pace.includes('→') || pace.includes('@')) {
+    // Look for patterns like "@ 6:30-6:35/mi" or "@ 6:30/mi" (with /mi suffix)
+    const atMatchWithSuffix = pace.match(/@\s*(\d+:\d+(?:-\d+:\d+)?)\s*\/mi/i);
+    if (atMatchWithSuffix) {
+      return atMatchWithSuffix[1];
+    }
+    // Look for patterns like "@ 6:30-6:35" or "@ 6:30" (without /mi suffix)
+    const atMatch = pace.match(/@\s*(\d+:\d+(?:-\d+:\d+)?)/);
+    if (atMatch) {
+      return atMatch[1];
+    }
+    // Fallback: look for any pace pattern like "6:30-6:35/mi" or "6:30/mi"
+    const paceMatchWithSuffix = pace.match(/(\d+:\d+(?:-\d+:\d+)?)\s*\/mi/i);
+    if (paceMatchWithSuffix) {
+      return paceMatchWithSuffix[1];
+    }
+    // Last resort: find any X:XX or X:XX-X:XX pattern (likely the pace)
+    const paceMatch = pace.match(/(\d+:\d+(?:-\d+:\d+)?)/);
+    if (paceMatch) {
+      return paceMatch[1];
+    }
+    // If no pace found in structured workout, return null
+    return null;
+  }
+  
+  // Simple pace format - just strip the /mi suffix
   return pace.replace('/mi', '').replace('/mile', '').trim();
 }
 
@@ -72,8 +107,12 @@ function WorkoutCard({
 
   const isRest = /rest/i.test(workout.title) || type === 'rest';
   const isLong = /long/i.test(workout.title);
-  const isTempo = /tempo|threshold/i.test(workout.title);
-  const isEasy = /easy/i.test(workout.title) || type === 'run';
+  const isThreshold = /threshold/i.test(workout.title);
+  const isTempo = /tempo/i.test(workout.title);
+  const isEasy = /easy/i.test(workout.title) || (type === 'run' && !isLong && !isTempo && !isThreshold);
+
+  const runCategoryLabel =
+    isLong ? 'Long Run' : isThreshold ? 'Threshold Run' : isTempo ? 'Tempo Run' : isEasy ? 'Easy Run' : 'Run';
 
   const distance =
     workout.actualDistanceMiles != null
@@ -84,7 +123,6 @@ function WorkoutCard({
 
   // --- COMPLETED RUN CARD (detail density like screenshot, reskinned) ---
   if (variant === 'completed') {
-    const titleLine = shortTitle(workout.title);
     const pace = formatPace(workout.actualPace || null) || computePaceFromDistanceAndDuration(distance, workout.actualDurationMinutes);
     const duration = workout.actualDurationMinutes != null ? `${Math.round(workout.actualDurationMinutes)} min` : null;
     const hr = workout.avgHeartRate != null ? `${Math.round(workout.avgHeartRate)} bpm` : null;
@@ -92,46 +130,45 @@ function WorkoutCard({
     return (
       <Link
         href={`/workout/${workout.id}`}
-        className="block rounded-lg border border-black/15 bg-[#f3efec] px-5 py-4 shadow-sm hover:bg-[#f8f4f2] transition-colors"
+        className="block rounded-lg border border-black/15 bg-[#f3efec] px-4 py-3 shadow-sm hover:bg-[#f8f4f2] transition-colors"
       >
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="text-[12px] font-normal tracking-widest text-[#4b2a24]/80">RUN</div>
-            <div className="mt-1 text-[22px] leading-snug font-normal text-[#4b2a24]">
-              {titleLine}
+            <div className="text-[12px] font-normal tracking-widest text-[#4b2a24]/80">
+              {runCategoryLabel.toUpperCase()}
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="rounded-md bg-green-500 px-4 py-2 text-sm font-normal text-white shadow-sm">
+            <span className="rounded-md bg-green-500 px-3 py-1.5 text-sm font-normal text-white shadow-sm">
               Done
             </span>
           </div>
         </div>
 
-        <div className="mt-6 flex items-end gap-3">
-          <div className="text-[80px] leading-[0.9] font-normal text-[#4b2a24]">
+        <div className="mt-4 flex items-end gap-3">
+          <div className="text-[60px] leading-[0.9] font-normal text-[#4b2a24]">
             {distance != null ? distance.toFixed(1) : '—'}
           </div>
-          <div className="pb-3 text-2xl font-normal text-[#4b2a24]/70">mi</div>
+          <div className="pb-2 text-xl font-normal text-[#4b2a24]/70">mi</div>
         </div>
 
-        <div className="mt-4 flex items-center gap-8 text-[#4b2a24]/70">
+        <div className="mt-3 flex items-center gap-6 text-[#4b2a24]/70">
           {pace && (
             <div className="flex items-baseline gap-2">
-              <span className="text-lg font-normal">{pace}</span>
-              <span className="text-lg font-light">/mi</span>
+              <span className="text-base font-normal">{pace}</span>
+              <span className="text-base font-light">/mi</span>
             </div>
           )}
           {hr && (
             <div className="flex items-baseline gap-2">
-              <span className="text-lg font-normal">{hr}</span>
+              <span className="text-base font-normal">{hr}</span>
             </div>
           )}
         </div>
 
-        <div className="mt-5 border-t border-black/15 pt-3 flex items-center justify-between text-[#4b2a24]/70">
-          <div className="text-base font-normal">View details →</div>
-          {duration && <div className="text-base font-light">{duration}</div>}
+        <div className="mt-4 border-t border-black/15 pt-2.5 flex items-center justify-between text-[#4b2a24]/70">
+          <div className="text-sm font-normal">View details →</div>
+          {duration && <div className="text-sm font-light">{duration}</div>}
         </div>
       </Link>
     );

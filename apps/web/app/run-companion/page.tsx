@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { getSupabase } from '@/lib/supabase';
 import { getEnv } from '@/lib/env';
-import { WorkoutRepository, WhiteboardRepository } from '@lifeos/database';
+import { HealthRepository, WorkoutRepository, WhiteboardRepository } from '@lifeos/database';
 import { createTimeContext } from '@/lib/time-context';
 import { RunCompanionView } from './run-companion.view';
 
@@ -43,6 +43,7 @@ export default async function RunCompanionPage() {
   const userId = env.USER_ID;
   const timezone = env.TIMEZONE;
 
+  const healthRepo = new HealthRepository(supabase, timezone);
   const workoutRepo = new WorkoutRepository(supabase);
   const whiteboardRepo = new WhiteboardRepository(supabase);
 
@@ -103,6 +104,58 @@ export default async function RunCompanionPage() {
   const monthMiles = sumMilesFromWorkouts(monthRuns);
   const yearMiles = sumMilesFromWorkouts(yearRuns);
 
+  // ---- Health (for Training Readiness card) ----
+  const [todayWithStatus, averages, recoveryScore] = await Promise.all([
+    healthRepo.getTodayWithStatus(userId).catch(() => ({ data: null, isStale: false, dataDate: null })),
+    healthRepo.getAverages(userId, 7).catch(() => ({ sleepHours: null, hrv: null, restingHr: null })),
+    healthRepo.calculateRecoveryScore(userId).catch(() => 0.5),
+  ]);
+
+  const healthToday = todayWithStatus.data;
+  const recoveryPct = Math.round(recoveryScore * 100);
+  const hrvDelta =
+    healthToday?.hrv != null && averages.hrv != null ? Math.round(healthToday.hrv - averages.hrv) : null;
+  const hrvDeltaPct =
+    healthToday?.hrv != null && averages.hrv != null && averages.hrv !== 0
+      ? Math.round(((healthToday.hrv - averages.hrv) / averages.hrv) * 100)
+      : null;
+
+  const readiness = {
+    score: recoveryPct,
+    stress:
+      healthToday?.stressLevel != null
+        ? healthToday.stressLevel <= 3
+          ? 'Low'
+          : healthToday.stressLevel <= 6
+            ? 'Moderate'
+            : 'High'
+        : '—',
+    hrv:
+      hrvDeltaPct != null
+        ? Math.abs(hrvDeltaPct) <= 5
+          ? 'Balanced'
+          : hrvDeltaPct > 5
+            ? 'Improving'
+            : 'Strained'
+        : '—',
+    sleep:
+      healthToday?.sleepHours != null
+        ? healthToday.sleepHours >= 7
+          ? 'Good'
+          : healthToday.sleepHours >= 6
+            ? 'Fair'
+            : 'Poor'
+        : '—',
+    recovery:
+      recoveryPct >= 75 ? 'Recovered' : recoveryPct >= 55 ? 'Moderate' : 'Fatigued',
+    subtitle:
+      hrvDelta != null
+        ? `HRV ${hrvDelta >= 0 ? '+' : ''}${hrvDelta}ms vs 7-day avg`
+        : todayWithStatus.isStale
+          ? `Showing latest available (${todayWithStatus.dataDate || 'stale'})`
+          : null,
+  };
+
   // ---- Latest training coach notes (for right column “insights” if needed) ----
   const whiteboardEntries = await whiteboardRepo.getRecentForContext(userId, { days: 7, limit: 20 }).catch(() => []);
 
@@ -113,10 +166,13 @@ export default async function RunCompanionPage() {
       workouts={serializedWorkouts}
       monthMiles={monthMiles}
       yearMiles={yearMiles}
+      readiness={readiness}
       whiteboardEntries={whiteboardEntries}
     />
   );
 }
+
+
 
 
 

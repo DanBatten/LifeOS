@@ -27,8 +27,15 @@ export function PastWorkoutCard({
   avgHeartRate,
   elevationGainFt,
 }: PastWorkoutCardProps) {
-  // Extract short title (remove "Week X —" prefix if present)
-  const shortTitle = title.replace(/^Week \d+\s*[—-]\s*\w+:\s*/i, '').trim();
+  // Derive run category label from title (keep this lightweight and deterministic)
+  const runCategory = (() => {
+    const t = title.toLowerCase();
+    if (t.includes('long')) return 'Long Run';
+    if (t.includes('threshold')) return 'Threshold Run';
+    if (t.includes('tempo')) return 'Tempo Run';
+    if (t.includes('easy')) return 'Easy Run';
+    return workoutType.toLowerCase() === 'run' ? 'Run' : workoutType;
+  })();
 
   // Format pace (remove /mi if present)
   const displayPace = pace?.replace('/mi', '').replace('/mile', '').trim();
@@ -36,17 +43,14 @@ export function PastWorkoutCard({
   return (
     <Link
       href={`/workout/${id}`}
-      className="block bg-green-50 dark:bg-green-900/20 rounded-2xl p-5 border border-green-200 dark:border-green-800 hover:shadow-lg hover:border-green-300 dark:hover:border-green-700 transition-all group"
+      className="block bg-green-50 dark:bg-green-900/20 rounded-2xl p-4 border border-green-200 dark:border-green-800 hover:shadow-lg hover:border-green-300 dark:hover:border-green-700 transition-all group"
     >
       {/* Header row */}
-      <div className="flex items-start justify-between mb-4">
+      <div className="flex items-start justify-between mb-3">
         <div className="flex-1 min-w-0">
           <p className="text-xs font-medium text-green-600 dark:text-green-400 uppercase tracking-wide">
-            {workoutType}
+            {runCategory}
           </p>
-          <h4 className="font-semibold text-gray-900 dark:text-white truncate mt-0.5">
-            {shortTitle}
-          </h4>
         </div>
         <span className="text-xs px-2.5 py-1 rounded-full bg-green-500 text-white font-medium shrink-0">
           Done
@@ -54,20 +58,20 @@ export function PastWorkoutCard({
       </div>
 
       {/* Big stat - distance or duration */}
-      <div className="mb-4">
+      <div className="mb-3">
         {distanceMiles ? (
           <div className="flex items-baseline gap-1">
-            <span className="text-4xl font-bold text-gray-900 dark:text-white">
+            <span className="text-3xl font-bold text-gray-900 dark:text-white">
               {distanceMiles.toFixed(1)}
             </span>
-            <span className="text-lg text-gray-500 dark:text-gray-400">mi</span>
+            <span className="text-base text-gray-500 dark:text-gray-400">mi</span>
           </div>
         ) : durationMinutes ? (
           <div className="flex items-baseline gap-1">
-            <span className="text-4xl font-bold text-gray-900 dark:text-white">
+            <span className="text-3xl font-bold text-gray-900 dark:text-white">
               {durationMinutes}
             </span>
-            <span className="text-lg text-gray-500 dark:text-gray-400">min</span>
+            <span className="text-base text-gray-500 dark:text-gray-400">min</span>
           </div>
         ) : null}
       </div>
@@ -104,7 +108,7 @@ export function PastWorkoutCard({
       </div>
 
       {/* View details hint */}
-      <div className="mt-4 pt-3 border-t border-green-200 dark:border-green-800 flex items-center justify-between">
+      <div className="mt-3 pt-2.5 border-t border-green-200 dark:border-green-800 flex items-center justify-between">
         <span className="text-xs text-gray-400 group-hover:text-green-600 transition-colors">
           View details →
         </span>
