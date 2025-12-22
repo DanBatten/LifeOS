@@ -163,6 +163,20 @@ INSERT INTO workouts (
     13, 1
 );
 
+-- Week 13 - Tue: 6 mi easy
+INSERT INTO workouts (
+    user_id, plan_id, phase_id, title, workout_type, scheduled_date, status,
+    prescribed_distance_miles, prescribed_pace_per_mile, prescribed_description,
+    week_number, day_of_week
+) VALUES (
+    v_user_id, v_plan_id, v_phase_specificity,
+    'Week 13 — Tue: 6 mi easy',
+    'run', '2025-12-23', 'planned',
+    6, '8:00-8:15/mi', 
+    '6 mi easy run at conversational pace. Recovery from yesterday''s tempo effort. HR 130-145 bpm.',
+    13, 2
+);
+
 -- Week 13 - Wed: 6 mi easy
 INSERT INTO workouts (
     user_id, plan_id, phase_id, title, workout_type, scheduled_date, status,

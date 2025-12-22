@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 
 interface SerializedWorkout {
   id: string;
@@ -46,6 +47,7 @@ function shortTitle(title: string) {
  * - Range: "6:30-6:35/mi" → "6:30-6:35"
  * - Structured: "2 mi WU → 6 mi @ 6:30-6:35/mi → 1 mi CD" → "6:30-6:35"
  * - Without suffix: "2 mi WU → 6 mi @ 6:30" → "6:30"
+ * - Single digit: "@ 6" → "6:00" (assumes minutes)
  */
 function formatPace(pace?: string | null) {
   if (!pace) return null;
@@ -61,6 +63,11 @@ function formatPace(pace?: string | null) {
     const atMatch = pace.match(/@\s*(\d+:\d+(?:-\d+:\d+)?)/);
     if (atMatch) {
       return atMatch[1];
+    }
+    // Look for single digit pace like "@ 6" or "@ 7" (assumes X:00 format)
+    const atMatchSingleDigit = pace.match(/@\s*(\d)(?:\s|$)/);
+    if (atMatchSingleDigit) {
+      return `${atMatchSingleDigit[1]}:00`;
     }
     // Fallback: look for any pace pattern like "6:30-6:35/mi" or "6:30/mi"
     const paceMatchWithSuffix = pace.match(/(\d+:\d+(?:-\d+:\d+)?)\s*\/mi/i);
@@ -176,9 +183,15 @@ function WorkoutCard({
 
   // --- TODAY CARD (matches screenshot layout, placeholder data where needed) ---
   if (variant === 'today') {
-    const paceRange = formatPaceRange(workout.prescribedPacePerMile || null) || '8-8:15';
-    const shoeLabel = 'Daily Trainer';
-    const shoeName = 'Adidas Adizero Evo SL';
+    // Try prescribedPacePerMile first, then extract from prescribedDescription, then fallback
+    const extractedPace = formatPaceRange(workout.prescribedPacePerMile || null) 
+      || formatPaceRange(workout.prescribedDescription || null)
+      || '8-8:15';
+    const paceRange = extractedPace;
+    // Default to daily trainer - in future, fetch from workout.shoe_id or recommend based on type
+    const shoeLabel = isLong ? 'Long Run' : 'Daily Trainer';
+    const shoeName = isLong ? 'ASICS Gel Nimbus 26' : 'Adidas Adizero Evo SL';
+    const shoeImage = isLong ? '/shoes/asics-gel-nimbus.png' : '/shoes/adidas-adizero-evo-sl.png';
     const todayLabel = isLong ? 'TODAYS LONG RUN' : isTempo ? 'TODAYS TEMPO RUN' : isRest ? 'TODAYS REST DAY' : 'TODAYS RUN';
 
     return (
@@ -230,7 +243,15 @@ function WorkoutCard({
             </div>
 
             <div className="mt-4 rounded-md border border-black/10 bg-white/70 p-4 flex items-center gap-4">
-              <div className="h-14 w-20 rounded bg-black/10" aria-hidden="true" />
+              <div className="relative h-14 w-20 shrink-0">
+                <Image 
+                  src={shoeImage} 
+                  alt={shoeName} 
+                  width={160}
+                  height={112}
+                  className="object-contain absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" 
+                />
+              </div>
               <div className="flex-1 min-w-0">
                 <div className="text-lg font-normal text-[#4b2a24]">{shoeLabel}</div>
                 <div className="text-sm font-light text-[#4b2a24]/70">{shoeName}</div>

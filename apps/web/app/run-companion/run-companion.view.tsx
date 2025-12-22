@@ -6,9 +6,6 @@ import type { TimeContext } from '@/lib/time-context';
 import type { WhiteboardEntry } from '@lifeos/core';
 import { RunCompanionScheduleRail } from './run-companion-schedule-rail';
 import { RunCompanionChatPanel } from './run-companion-chat-panel';
-import ShoeNimbus from '@/assets/Shoe-Aesics-GelNumbus.png';
-import ShoeEvoSl from '@/assets/Shoe-Adidas-Adizero-Evo-SL.png';
-import ShoeAdiosPro4 from '@/assets/Shoe-Adidas-AdiosPro4.png';
 
 interface SerializedWorkout {
   id: string;
@@ -27,6 +24,73 @@ interface SerializedWorkout {
   actualDistanceMiles?: number | null;
 }
 
+interface SerializedShoe {
+  id: string;
+  brand: string;
+  model: string;
+  nickname: string | null;
+  category: string;
+  totalMiles: number;
+  maxMiles: number;
+  imageUrl: string | null;
+  status: string;
+}
+
+// Map category to display label
+const categoryLabels: Record<string, string> = {
+  daily_trainer: 'Daily Trainer',
+  tempo: 'Tempo',
+  race: 'Race Shoe',
+  long_run: 'Long Run',
+  trail: 'Trail',
+  recovery: 'Recovery',
+};
+
+// Get shoe health status based on mileage
+function getShoeHealth(totalMiles: number, maxMiles: number): { label: string; tone: 'green' | 'yellow' | 'red' } {
+  const pct = totalMiles / maxMiles;
+  if (pct < 0.5) return { label: 'FRESH', tone: 'green' };
+  if (pct < 0.8) return { label: 'GOOD', tone: 'yellow' };
+  return { label: 'RETIRE SOON', tone: 'red' };
+}
+
+// Default shoes to show when DB isn't configured
+const defaultShoes: SerializedShoe[] = [
+  {
+    id: 'default-long-run',
+    brand: 'ASICS',
+    model: 'Gel Nimbus 26',
+    nickname: 'Long Run Cushion',
+    category: 'long_run',
+    totalMiles: 23.4,
+    maxMiles: 500,
+    imageUrl: '/shoes/asics-gel-nimbus.png',
+    status: 'active',
+  },
+  {
+    id: 'default-daily',
+    brand: 'Adidas',
+    model: 'Adizero Evo SL',
+    nickname: 'Daily Trainer',
+    category: 'daily_trainer',
+    totalMiles: 26.3,
+    maxMiles: 400,
+    imageUrl: '/shoes/adidas-adizero-evo-sl.png',
+    status: 'active',
+  },
+  {
+    id: 'default-race',
+    brand: 'Adidas',
+    model: 'Adios Pro 4',
+    nickname: 'Race Day',
+    category: 'race',
+    totalMiles: 75.8,
+    maxMiles: 250,
+    imageUrl: '/shoes/adidas-adios-pro-4.png',
+    status: 'active',
+  },
+];
+
 export function RunCompanionView({
   timezone,
   timeContext,
@@ -35,6 +99,7 @@ export function RunCompanionView({
   yearMiles,
   readiness,
   whiteboardEntries,
+  shoes: shoesFromDb = [],
 }: {
   timezone: string;
   timeContext: TimeContext;
@@ -50,8 +115,12 @@ export function RunCompanionView({
     subtitle: string | null;
   };
   whiteboardEntries: WhiteboardEntry[];
+  shoes?: SerializedShoe[];
 }) {
   const dateLabel = timeContext.dateString.toUpperCase();
+
+  // Use default shoes if none from database
+  const shoes = shoesFromDb.length > 0 ? shoesFromDb : defaultShoes;
 
   // Pull a couple recent coach notes for the right panel (if present)
   const trainingNotes = whiteboardEntries
@@ -91,10 +160,10 @@ export function RunCompanionView({
               </div>
               <div className="p-5">
                 {/* Header: match type scale/placement from design */}
-                <div className="flex items-start justify-between">
-                  <div className="flex gap-14 pt-0">
+                <div className="flex items-start justify-between pr-4">
+                  <div className="flex gap-8 pt-0">
                     <div>
-                      <div className="text-[64px] leading-[0.9] font-normal tracking-tight text-[#ff5a2f]">
+                      <div className="text-[64px] leading-[0.9] font-black tracking-tight text-[#ff5a2f]">
                         {Math.round(monthMiles)}
                       </div>
                       <div className="text-[12px] tracking-[0.25em] text-[#4b2a24]/45">MONTH</div>
@@ -209,43 +278,55 @@ export function RunCompanionView({
                   </div>
 
                   <div className="space-y-[15px]">
-                    {[
-                      { miles: 39, label: 'Long Run', shoe: 'Aesics Gel Nimbus', tone: 'ELITE', img: ShoeNimbus },
-                      { miles: 97, label: 'Daily Trainer', shoe: 'Adidas Adizero Evo SL', tone: 'FRESH', img: ShoeEvoSl },
-                      { miles: 280, label: 'Race Shoe', shoe: 'Adidas Adizero Evo SL', tone: 'ELITE', img: ShoeAdiosPro4 },
-                    ].map((s) => (
-                      <div
-                        key={s.label}
-                        className="h-[95px] w-full rounded-xl border border-black/10 bg-[#f3efec] pl-0 pr-2 py-3 shadow-sm"
-                      >
-                        <div className="flex h-full items-center justify-between">
-                          {/* Left cluster: shoe image + miles (miles sits behind shoe) */}
-                          <div className="relative h-full w-[150px]">
-                            <div className="absolute left-0 top-1/2 h-20 w-20 -translate-y-1/2 z-20">
-                              <Image src={s.img} alt={s.shoe} fill className="object-contain" />
-                            </div>
+                    {shoes.map((shoe) => {
+                      const health = getShoeHealth(shoe.totalMiles, shoe.maxMiles);
+                      const healthBg = health.tone === 'green' ? 'bg-green-200 text-green-900' 
+                        : health.tone === 'yellow' ? 'bg-amber-200 text-amber-900' 
+                        : 'bg-red-200 text-red-900';
+                      
+                      return (
+                        <div
+                          key={shoe.id}
+                          className="h-[95px] w-full rounded-xl border border-black/10 bg-[#f3efec] pl-0 pr-2 py-3 shadow-sm"
+                        >
+                          <div className="flex h-full items-center justify-between">
+                            {/* Left cluster: shoe image + miles */}
+                            <div className="relative h-full w-[150px]">
+                              {shoe.imageUrl && (
+                                <div className="absolute left-0 top-1/2 h-20 w-20 -translate-y-1/2 z-20">
+                                  <Image 
+                                    src={shoe.imageUrl} 
+                                    alt={`${shoe.brand} ${shoe.model}`} 
+                                    fill 
+                                    className="object-contain" 
+                                  />
+                                </div>
+                              )}
 
-                            <div className="absolute left-[58px] top-1/2 -translate-y-[56%] z-10">
-                              <div className="text-[40px] leading-[0.9] font-normal text-[#ff5a2f]">
-                                {s.miles}
+                              <div className="absolute left-[58px] top-1/2 -translate-y-[56%] z-10">
+                                <div className="text-[40px] leading-[0.9] font-normal text-[#ff5a2f]">
+                                  {Math.round(shoe.totalMiles)}
+                                </div>
+                                <div className="-mt-1 text-[10px] font-bold tracking-normal text-[#ff5a2f]/80">MILES RUN</div>
                               </div>
-                              <div className="-mt-1 text-[10px] font-bold tracking-normal text-[#ff5a2f]/80">MILES RUN</div>
                             </div>
-                          </div>
 
-                          {/* Right cluster: label + shoe */}
-                          <div className="my-2 text-right">
-                            <span className="inline-flex text-[10px] font-semibold px-3 py-1 rounded bg-green-200 text-green-900">
-                              {s.tone}
-                            </span>
-                            <div className="mt-1 text-[16px] tracking-normal leading-[1.05] font-normal text-[#4b2a24]">
-                              {s.label}
+                            {/* Right cluster: label + shoe name */}
+                            <div className="my-2 text-right">
+                              <span className={`inline-flex text-[10px] font-semibold px-3 py-1 rounded ${healthBg}`}>
+                                {health.label}
+                              </span>
+                              <div className="mt-1 text-[16px] tracking-normal leading-[1.05] font-normal text-[#4b2a24]">
+                                {categoryLabels[shoe.category] || shoe.nickname || shoe.category}
+                              </div>
+                              <div className="text-[10px] leading-[1.1] text-[#4b2a24]/55">
+                                {shoe.brand} {shoe.model}
+                              </div>
                             </div>
-                            <div className="text-[10px] leading-[1.1] text-[#4b2a24]/55">{s.shoe}</div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 

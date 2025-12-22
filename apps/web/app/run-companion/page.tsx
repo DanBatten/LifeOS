@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { getSupabase } from '@/lib/supabase';
 import { getEnv } from '@/lib/env';
-import { HealthRepository, WorkoutRepository, WhiteboardRepository } from '@lifeos/database';
+import { HealthRepository, WorkoutRepository, WhiteboardRepository, ShoeRepository } from '@lifeos/database';
 import { createTimeContext } from '@/lib/time-context';
 import { RunCompanionView } from './run-companion.view';
 
@@ -46,6 +46,7 @@ export default async function RunCompanionPage() {
   const healthRepo = new HealthRepository(supabase, timezone);
   const workoutRepo = new WorkoutRepository(supabase);
   const whiteboardRepo = new WhiteboardRepository(supabase);
+  const shoeRepo = new ShoeRepository(supabase);
 
   const now = new Date();
   const timeContext = createTimeContext({ timezone, userName: 'Dan' });
@@ -156,8 +157,24 @@ export default async function RunCompanionPage() {
           : null,
   };
 
-  // ---- Latest training coach notes (for right column “insights” if needed) ----
+  // ---- Latest training coach notes (for right column "insights" if needed) ----
   const whiteboardEntries = await whiteboardRepo.getRecentForContext(userId, { days: 7, limit: 20 }).catch(() => []);
+
+  // ---- Shoes ----
+  const activeShoes = await shoeRepo.getActiveShoes(userId).catch(() => []);
+  
+  // Serialize shoes for the view
+  const serializedShoes = activeShoes.map((shoe) => ({
+    id: shoe.id,
+    brand: shoe.brand,
+    model: shoe.model,
+    nickname: shoe.nickname,
+    category: shoe.category,
+    totalMiles: shoe.totalMiles,
+    maxMiles: shoe.maxMiles,
+    imageUrl: shoe.imageUrl,
+    status: shoe.status,
+  }));
 
   return (
     <RunCompanionView
@@ -168,6 +185,7 @@ export default async function RunCompanionPage() {
       yearMiles={yearMiles}
       readiness={readiness}
       whiteboardEntries={whiteboardEntries}
+      shoes={serializedShoes}
     />
   );
 }
