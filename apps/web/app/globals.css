@@ -19,6 +19,7 @@ body {
   background-color: rgb(var(--background-rgb));
   min-height: 100vh;
   font-feature-settings: "rlig" 1, "calt" 1;
+  font-weight: 300;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

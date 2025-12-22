@@ -69,6 +69,21 @@ export const PAGE_CONTEXT_MAP: Record<string, ChatContextConfig> = {
     focusedAnalysis: true,
   },
 
+  // Run Companion - training focused (coach), but not always post-run sync
+  '/run-companion': {
+    type: 'training',
+    placeholder: 'Ask me anything about your running...',
+    emptyStateTitle: 'Run Coach',
+    emptyStateSubtitle: 'Ask about your plan, paces, recovery, or today’s workout.',
+    primaryAgent: 'training-coach',
+    dataPriority: {
+      workouts: 1,
+      health: 2,
+      planning: 3,
+    },
+    focusedAnalysis: true,
+  },
+
   // Post-run page (dedicated post-workout analysis)
   '/post-run': {
     type: 'post-run',
@@ -149,11 +164,12 @@ export function shouldAutoSyncGarmin(context: ChatContextConfig): boolean {
  * Get the API context type to send to backend
  * Maps our rich context config to the simpler API context type
  */
-export function getApiContextType(context: ChatContextConfig): 'default' | 'post-run' | 'health' | 'planning' {
+export function getApiContextType(context: ChatContextConfig): 'default' | 'training' | 'post-run' | 'health' | 'planning' {
   switch (context.type) {
     case 'post-run':
-    case 'training':
       return 'post-run';
+    case 'training':
+      return 'training';
     case 'health':
       return 'health';
     case 'planning':

@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3003",
     "build": "npm run build:deps && next build",
     "build:deps": "cd ../.. && npx turbo build --filter=@lifeos/web^...",
     "build:next": "next build",
-    "start": "next start",
+    "start": "next start -p 3003",
     "lint": "next lint",
     "typecheck": "tsc --noEmit"
   },

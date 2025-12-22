@@ -19,3 +19,7 @@ export {
   GroceryListRepository,
   MealPreferencesRepository,
 } from './meal-plan.repository.js';
+
+// Gear
+export { ShoeRepository } from './shoe.repository.js';
+export type { RunningShoe, CreateRunningShoe, UpdateRunningShoe } from './shoe.repository.js';

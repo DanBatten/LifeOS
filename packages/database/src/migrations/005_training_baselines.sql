@@ -213,3 +213,6 @@ COMMENT ON COLUMN race_results.distance_type IS 'Standardized race distance cate
 COMMENT ON COLUMN race_results.lessons_learned IS 'Post-race reflection for future training/racing';
 
 
+
+
+
