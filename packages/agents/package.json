@@ -21,7 +21,8 @@
     "@lifeos/core": "*",
     "@lifeos/database": "*",
     "@lifeos/garmin": "*",
-    "@lifeos/llm": "*"
+    "@lifeos/llm": "*",
+    "@lifeos/skills": "*"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
