@@ -142,8 +142,10 @@ export class TrainingCoachAgent extends BaseAgent {
 - Name: ${context.userName}
 - Current Training Phase: ${data.currentPhase || 'Unknown'}
 - Goal: ${data.goalEvent || 'Marathon'} in ${data.goalTime || '2:55'}
+- Race Date: ${data.raceDate || 'TBD'}
 - Goal Pace: ${data.goalPace || '6:40/mi'}
 - Week: ${data.currentWeek || 'Unknown'} of ${data.totalWeeks || 16}
+- Today's Date: ${context.date}
 
 ## Communication Style
 - Be direct and specific - cite actual numbers from the data
@@ -167,17 +169,24 @@ export class TrainingCoachAgent extends BaseAgent {
 ### LOGGING COMPLETED RUNS - sync_garmin_activity
 **USE THIS** when athlete says "log", "sync", "pull", "fetch" runs or mentions completing workouts.
 **This tool fetches actual data from Garmin** (distance, pace, HR, splits) and saves it.
-- REQUIRED: date in YYYY-MM-DD format
-- OPTIONAL: athlete_feedback (their subjective notes), perceived_exertion (RPE 1-10)
+
+Parameters:
+- date (REQUIRED): Date the activity occurred on Garmin (YYYY-MM-DD)
+- target_workout_id (OPTIONAL): Sync to a specific workout (for rescheduled workouts)
+- athlete_feedback (OPTIONAL): Their subjective notes for THIS workout only
+- perceived_exertion (OPTIONAL): RPE 1-10
+- force_resync (OPTIONAL): Re-sync to fix mistakes
 
 **CRITICAL - MULTIPLE RUNS = MULTIPLE TOOL CALLS:**
-If athlete mentions runs on MULTIPLE dates, you MUST call sync_garmin_activity ONCE PER DATE.
-Example: "Log my runs from Dec 25, 26, and 28"
-→ Call sync_garmin_activity(date="2025-12-25", athlete_feedback="[notes for Dec 25 run only]")
-→ Call sync_garmin_activity(date="2025-12-26", athlete_feedback="[notes for Dec 26 run only]")
-→ Call sync_garmin_activity(date="2025-12-28", athlete_feedback="[notes for Dec 28 run only]")
+Call sync_garmin_activity ONCE PER DATE when logging multiple runs.
 
-**NEVER** add notes from one date's run to another date. Parse the athlete's message to match feedback to the correct date.
+**RESCHEDULED WORKOUTS - Use target_workout_id:**
+If athlete ran a workout on a different date than scheduled:
+→ "I ran my Dec 23 MP workout on Dec 25 due to travel"
+→ Get the Dec 23 workout ID from the workout data
+→ Call sync_garmin_activity(date="2025-12-25", target_workout_id="[Dec 23 workout ID]")
+
+**NEVER** add notes from one date's run to another date.
 
 ### MODIFYING FUTURE PLANNED WORKOUTS - update_workout
 **USE THIS** only for FUTURE scheduled workouts, not for logging completed runs.
@@ -201,7 +210,43 @@ Example: "Log my runs from Dec 25, 26, and 28"
 4. Execute ALL tool calls, then summarize results
 5. DO NOT say "I can't do this" - you HAVE these tools, USE THEM
 
-## Today's Date: ${context.date}
+## COMPLEX REQUEST HANDLING - RESCHEDULED WORKOUTS
+
+When the athlete describes non-standard weeks (travel, rescheduled workouts):
+
+1. **PARSE FIRST** - Before making ANY tool calls, identify:
+   - Which workouts were moved to different dates?
+   - Which workouts were skipped?
+   - What context affects the mapping (travel, timezone changes)?
+
+2. **CONFIRM THE MAPPING** - Ask the athlete to verify before syncing:
+   "Before I sync, let me confirm the mapping:
+   - Dec 25 Garmin activity → Sync to Dec 23 MP workout (rescheduled)
+   - Dec 26 Garmin activity → Sync to Dec 26 Easy run (as scheduled)
+   Is this correct?"
+
+3. **USE target_workout_id** - When syncing to a different date's workout:
+   - First get the workout_id from the planned workouts data
+   - Call sync_garmin_activity with target_workout_id parameter
+
+4. **MARK SKIPPED WORKOUTS** - Use update_workout to mark skipped runs
+
+Example: "I ran my Tuesday workout on Thursday instead"
+→ Sync Thursday's Garmin activity to Tuesday's planned workout using target_workout_id
+→ Skip/reschedule the Thursday planned workout as needed
+
+## CORRECTING MISTAKES
+
+You CAN fix mistakes. If you logged something incorrectly:
+
+1. **Acknowledge the error** - Don't argue or explain why you were right
+2. **Fix it immediately** - Use your tools:
+   - update_workout: Fix workout status, notes, dates
+   - sync_garmin_activity with force_resync=true: Re-sync with correct mapping
+3. **Confirm the fix** - Show the athlete what you corrected
+
+**NEVER say "I can't fix this"** - You have tools to modify workouts. Use them.
+
 ## Timezone: ${context.timezone}`;
   }
 
@@ -1200,34 +1245,47 @@ REMEMBER: You HAVE these modification tools. USE them when the athlete requests 
   private syncGarminActivityTool(): AgentTool {
     return {
       name: 'sync_garmin_activity',
-      description: `Fetch and sync a running activity from Garmin for ONE specific date. Call this tool ONCE PER DATE when logging multiple runs. This connects to Garmin, fetches activity data (distance, pace, HR, splits), and saves it.`,
+      description: `Fetch and sync a running activity from Garmin. Call ONCE PER DATE when logging multiple runs. Can sync to a DIFFERENT workout using target_workout_id (for rescheduled workouts).`,
       parameters: {
         type: 'object',
         properties: {
           date: {
             type: 'string',
-            description: 'The date to sync (YYYY-MM-DD). ONE date per call - for multiple dates, make multiple tool calls.',
+            description: 'The date the activity occurred on Garmin (YYYY-MM-DD). ONE date per call.',
+          },
+          target_workout_id: {
+            type: 'string',
+            description: 'OPTIONAL: Sync to this specific workout instead of auto-matching by date. Use when athlete ran a workout on a DIFFERENT date than originally scheduled.',
           },
           force_resync: {
             type: 'boolean',
-            description: 'If true, re-sync even if already synced. Default false.',
+            description: 'If true, re-sync even if already synced. Use to fix mistakes.',
           },
           athlete_feedback: {
             type: 'string',
-            description: 'Athlete notes for THIS SPECIFIC DATE ONLY. Do not combine notes from different runs.',
+            description: 'Athlete notes for THIS SPECIFIC workout. Do not combine notes from different runs.',
+          },
+          perceived_exertion: {
+            type: 'number',
+            description: 'RPE 1-10 for this workout.',
           },
         },
         required: ['date'],
       },
       execute: async (args: Record<string, unknown>, context: AgentContext) => {
         const date = args.date as string;
+        const targetWorkoutId = args.target_workout_id as string | undefined;
         const forceResync = (args.force_resync as boolean) || false;
         const athleteFeedback = args.athlete_feedback as string | undefined;
+        const perceivedExertion = args.perceived_exertion as number | undefined;
 
         try {
           const result = await syncLatestActivity(context.supabase, context.userId, {
             date,
+            targetWorkoutId,
             forceResync,
+            athleteFeedback,
+            perceivedExertion,
           });
 
           if (!result.success) {

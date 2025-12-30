@@ -60,6 +60,9 @@ export interface SyncActivityResult {
 export interface SyncActivityOptions {
   forceResync?: boolean; // Re-sync even if already synced
   date?: string; // Specific date to sync (defaults to today)
+  targetWorkoutId?: string; // Override: sync to this specific workout instead of date-matching
+  athleteFeedback?: string; // Athlete's subjective notes about the workout
+  perceivedExertion?: number; // RPE 1-10
 }
 
 /**
@@ -187,17 +190,37 @@ export async function syncLatestActivity(
       }
     }
 
-    // 3. Try to match to a planned workout for this date
-    const { data: plannedWorkouts } = await supabase
-      .from('workouts')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('scheduled_date', targetDate)
-      .eq('status', 'planned')
-      .order('created_at', { ascending: true });
+    // 3. Try to match to a planned workout
+    let plannedWorkout: Record<string, unknown> | null = null;
 
-    // Find best match (prefer workouts without external_id i.e. not yet synced from Garmin)
-    const plannedWorkout = plannedWorkouts?.find(w => !w.external_id) || plannedWorkouts?.[0];
+    if (options.targetWorkoutId) {
+      // Explicit target workout specified - use it regardless of date
+      const { data: targetWorkout } = await supabase
+        .from('workouts')
+        .select('*')
+        .eq('id', options.targetWorkoutId)
+        .eq('user_id', userId)
+        .single();
+      
+      if (targetWorkout) {
+        plannedWorkout = targetWorkout;
+        logger.info(`[Skill:SyncLatestActivity] Using explicit target workout: ${targetWorkout.title}`);
+      } else {
+        logger.warn(`[Skill:SyncLatestActivity] Target workout ${options.targetWorkoutId} not found`);
+      }
+    } else {
+      // Default: match to a planned workout on the target date
+      const { data: plannedWorkouts } = await supabase
+        .from('workouts')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('scheduled_date', targetDate)
+        .eq('status', 'planned')
+        .order('created_at', { ascending: true });
+
+      // Find best match (prefer workouts without external_id i.e. not yet synced from Garmin)
+      plannedWorkout = plannedWorkouts?.find(w => !w.external_id) || plannedWorkouts?.[0] || null;
+    }
 
     // 4. Parse Garmin activity data
     const durationMinutes = runningActivity.duration 
@@ -215,9 +238,14 @@ export async function syncLatestActivity(
         })()
       : null;
 
-    const workoutData = {
+    // Use the planned workout's scheduled date if we're syncing to a specific target
+    const effectiveDate = plannedWorkout 
+      ? (plannedWorkout.scheduled_date as string) 
+      : targetDate;
+
+    const workoutData: Record<string, unknown> = {
       user_id: userId,
-      scheduled_date: targetDate,
+      scheduled_date: effectiveDate,
       status: 'completed',
       completed_at: new Date().toISOString(),
       
@@ -242,8 +270,19 @@ export async function syncLatestActivity(
         // Include lap/split data for detailed analysis
         laps: lapData,
         syncedAt: new Date().toISOString(),
+        // Track if synced to a different date than the activity occurred
+        originalActivityDate: targetDate,
+        syncedToWorkoutId: plannedWorkout?.id,
       },
     };
+
+    // Add athlete feedback and RPE if provided
+    if (options.athleteFeedback) {
+      workoutData.personal_notes = options.athleteFeedback;
+    }
+    if (options.perceivedExertion) {
+      workoutData.perceived_exertion = options.perceivedExertion;
+    }
 
     let result: SyncActivityResult;
 

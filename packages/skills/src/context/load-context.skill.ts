@@ -80,6 +80,7 @@ interface TrainingPlan {
   name: string;
   goalEvent: string | null;
   goalTime: string | null;
+  raceDate: string | null;
   startDate: string;
   endDate: string;
   currentWeek: number | null;
@@ -266,6 +267,7 @@ export async function loadAgentContext(
       name: trainingPlan.name,
       goalEvent: trainingPlan.goal_event,
       goalTime: trainingPlan.goal_time,
+      raceDate: (trainingPlan.metadata as Record<string, unknown>)?.race_date as string | null,
       startDate: trainingPlan.start_date,
       endDate: trainingPlan.end_date,
       currentWeek,
