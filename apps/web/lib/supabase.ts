@@ -1,23 +1,36 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { getEnv } from './env';
 
-// Simple untyped client - we'll use manual type assertions
-let supabaseClient: ReturnType<typeof createClient> | null = null;
+// In serverless environments, create fresh clients to avoid stale connection issues
+// The singleton pattern can cause problems with cached data in Vercel edge functions
+let supabaseClient: SupabaseClient | null = null;
 
-export function getSupabase() {
-  if (supabaseClient) {
+export function getSupabase(): SupabaseClient {
+  // Always create fresh client in production to avoid caching issues
+  // In development, we can reuse for performance
+  if (process.env.NODE_ENV === 'development' && supabaseClient) {
     return supabaseClient;
   }
 
   const env = getEnv();
 
-  supabaseClient = createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, {
+  const client = createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, {
     auth: {
       persistSession: false,
     },
+    global: {
+      // Disable fetch caching in Next.js
+      fetch: (url, options = {}) => {
+        return fetch(url, { ...options, cache: 'no-store' });
+      },
+    },
   });
 
-  return supabaseClient;
+  if (process.env.NODE_ENV === 'development') {
+    supabaseClient = client;
+  }
+
+  return client;
 }
 
 // Helper to insert into any table with type safety at call site
