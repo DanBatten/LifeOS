@@ -5,6 +5,9 @@ import { getSupabaseService } from '@/lib/supabase';
 import { getEnv } from '@/lib/env';
 import { createTimeContext } from '@/lib/time-context';
 
+// Prevent static generation - this route requires runtime data
+export const dynamic = 'force-dynamic';
+
 type BriefingMeta = {
   kind: 'home_companion_briefing';
   timeOfDay: string;
