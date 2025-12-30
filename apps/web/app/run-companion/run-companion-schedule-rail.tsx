@@ -112,14 +112,30 @@ function WorkoutCard({
   const type = workout.workoutType?.toLowerCase?.() || '';
   const status = workout.status;
 
+  const titleAndDesc = `${workout.title || ''} ${workout.prescribedDescription || ''}`;
   const isRest = /rest/i.test(workout.title) || type === 'rest';
   const isLong = /long/i.test(workout.title);
   const isThreshold = /threshold/i.test(workout.title);
   const isTempo = /tempo/i.test(workout.title);
-  const isEasy = /easy/i.test(workout.title) || (type === 'run' && !isLong && !isTempo && !isThreshold);
+  const isMarathonPace = /marathon\s*pace|MP\s*run|\bMP\b/i.test(titleAndDesc);
+  const isInterval = /interval/i.test(workout.title);
+  const isEasy = /easy/i.test(workout.title) || (type === 'run' && !isLong && !isTempo && !isThreshold && !isMarathonPace && !isInterval);
 
-  const runCategoryLabel =
-    isLong ? 'Long Run' : isThreshold ? 'Threshold Run' : isTempo ? 'Tempo Run' : isEasy ? 'Easy Run' : 'Run';
+  // Determine the run category label based on workout type
+  const runCategoryLabel = isRest ? 'Rest Day'
+    : isMarathonPace ? 'MP Run'
+    : isLong ? 'Long Run' 
+    : isThreshold ? 'Threshold Run' 
+    : isTempo ? 'Tempo Run' 
+    : isInterval ? 'Interval Run'
+    : isEasy ? 'Easy Run' 
+    : 'Run';
+  
+  // Check if this workout is actually scheduled for today
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+  const scheduledDateStr = workout.scheduledDate?.split('T')[0] || '';
+  const isActuallyToday = scheduledDateStr === todayStr;
 
   const distance =
     workout.actualDistanceMiles != null
@@ -152,14 +168,14 @@ function WorkoutCard({
           </div>
         </div>
 
-        <div className="mt-4 flex items-end gap-3">
-          <div className="text-[60px] leading-[0.9] font-normal text-[#4b2a24]">
+        <div className="flex items-end gap-3">
+          <div className="text-[50px] leading-[0.9] font-black text-[#ff5a2f]">
             {distance != null ? distance.toFixed(1) : '—'}
           </div>
-          <div className="pb-2 text-xl font-normal text-[#4b2a24]/70">mi</div>
+          <div className="text-xl font-normal text-[#4b2a24]/70">mi</div>
         </div>
 
-        <div className="mt-3 flex items-center gap-6 text-[#4b2a24]/70">
+        <div className="flex items-center gap-6 text-[#4b2a24]/70">
           {pace && (
             <div className="flex items-baseline gap-2">
               <span className="text-base font-normal">{pace}</span>
@@ -192,12 +208,15 @@ function WorkoutCard({
     const shoeLabel = isLong ? 'Long Run' : 'Daily Trainer';
     const shoeName = isLong ? 'ASICS Gel Nimbus 26' : 'Adidas Adizero Evo SL';
     const shoeImage = isLong ? '/shoes/asics-gel-nimbus.png' : '/shoes/adidas-adizero-evo-sl.png';
-    const todayLabel = isLong ? 'TODAYS LONG RUN' : isTempo ? 'TODAYS TEMPO RUN' : isRest ? 'TODAYS REST DAY' : 'TODAYS RUN';
+    // Build label: "TODAY'S" prefix only if actually today, then the run category
+    const prefix = isActuallyToday ? "TODAY'S " : '';
+    const categoryUpper = runCategoryLabel.toUpperCase();
+    const cardLabel = `${prefix}${categoryUpper}`;
 
     return (
       <div className="rounded-lg border border-black/10 bg-[#ff5a2f] p-5 shadow-sm">
         <div className="flex items-start justify-between gap-3">
-          <div className="text-[18px] font-normal tracking-wide text-[#4b2a24]">{todayLabel}</div>
+          <div className="text-[18px] font-normal tracking-wide text-[#4b2a24]">{cardLabel}</div>
           <div className="flex items-center gap-2">
             <span className="text-[12px] font-normal px-3 py-1 rounded bg-white/60 text-[#4b2a24]">Week 11</span>
             <span className="text-[12px] font-normal px-3 py-1 rounded bg-white/60 text-[#4b2a24]">

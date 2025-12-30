@@ -87,7 +87,7 @@ export const ANTHROPIC_MODELS: Record<string, ModelDefinition> = {
 
   // Fast - Speed and efficiency
   'claude-haiku-4-5': {
-    id: 'claude-3-5-haiku-20241022',
+    id: 'claude-haiku-4-5-20251001',
     provider: 'anthropic',
     name: 'Claude Haiku 4.5',
     description: 'Fastest for efficiency, quick general tasks, free-tier accessible',

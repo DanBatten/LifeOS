@@ -106,26 +106,30 @@ export function CompanionHomeView({
         const res = await fetch('/api/companion/home/briefing', { cache: 'no-store' });
         const data = await res.json();
         if (cancelled) return;
+        
         if (data?.briefing) {
           setMessages([{ role: 'assistant', content: data.briefing }]);
-        } else if (messages.length === 0) {
+        } else {
+          // API returned but no briefing - show error details if available
+          const errorInfo = data?.error ? ` (${data.error})` : '';
           setMessages([
             {
               role: 'assistant',
               content:
                 `Good ${timeContext.timeOfDay}, Dan.\n\n` +
-                `Your companion briefing will appear here once your API keys/env are configured.`,
+                `I couldn't generate your briefing right now${errorInfo}. Try refreshing the page or asking me a question directly.`,
             },
           ]);
         }
-      } catch {
-        if (!cancelled && messages.length === 0) {
+      } catch (err) {
+        if (!cancelled) {
+          console.error('[Briefing] Failed to load:', err);
           setMessages([
             {
               role: 'assistant',
               content:
                 `Good ${timeContext.timeOfDay}, Dan.\n\n` +
-                `Your companion briefing will appear here once your API keys/env are configured.`,
+                `I'm having trouble connecting to the briefing service. Try refreshing the page.`,
             },
           ]);
         }
