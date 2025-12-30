@@ -72,12 +72,23 @@ export default async function RunCompanionPage() {
   const serializedWorkouts = workouts.map((w) => {
     const metadata = (w as unknown as { metadata?: Record<string, unknown> }).metadata;
     return {
-      ...w,
+      id: w.id,
+      title: w.title,
+      workoutType: w.workoutType,
+      status: w.status, // Explicitly include status
       scheduledDate: w.scheduledDate
         ? typeof w.scheduledDate === 'string'
           ? w.scheduledDate
           : w.scheduledDate.toISOString()
         : null,
+      prescribedDistanceMiles: w.prescribedDistanceMiles,
+      prescribedPacePerMile: w.prescribedPacePerMile,
+      prescribedDescription: w.prescribedDescription,
+      prescribedHrZone: w.prescribedHrZone,
+      plannedDurationMinutes: w.plannedDurationMinutes,
+      actualDurationMinutes: w.actualDurationMinutes,
+      avgHeartRate: w.avgHeartRate,
+      elevationGainFt: w.elevationGainFt,
       startedAt: w.startedAt
         ? typeof w.startedAt === 'string'
           ? w.startedAt
