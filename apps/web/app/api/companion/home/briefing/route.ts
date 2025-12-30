@@ -74,25 +74,31 @@ async function getCachedBriefing(
 export async function GET() {
   const env = getEnv();
   const supabase = getSupabaseService();
-  const llmClient = createLLMClient();
 
-  const timeContext = createTimeContext({ timezone: env.TIMEZONE, userName: 'Dan' });
-  const dateStr = todayDateString(env.TIMEZONE);
+  try {
+    const llmClient = createLLMClient();
+    const timeContext = createTimeContext({ timezone: env.TIMEZONE, userName: 'Dan' });
+    const dateStr = todayDateString(env.TIMEZONE);
 
-  const { workout: lastWorkoutMarker, health: lastHealthMarker } = await getLatestMarker(supabase, env.USER_ID);
-  const cached = await getCachedBriefing(supabase, env.USER_ID, dateStr);
+    console.log(`[Briefing] Generating for ${dateStr} (${timeContext.timeOfDay})`);
 
-  const isFresh =
-    cached &&
-    cached.metadata.timeOfDay === timeContext.timeOfDay &&
-    cached.metadata.lastWorkoutMarker === lastWorkoutMarker &&
-    cached.metadata.lastHealthMarker === lastHealthMarker;
+    const { workout: lastWorkoutMarker, health: lastHealthMarker } = await getLatestMarker(supabase, env.USER_ID);
+    const cached = await getCachedBriefing(supabase, env.USER_ID, dateStr);
 
-  if (isFresh) {
-    return NextResponse.json({ briefing: cached.content, cached: true });
-  }
+    const isFresh =
+      cached &&
+      cached.metadata.timeOfDay === timeContext.timeOfDay &&
+      cached.metadata.lastWorkoutMarker === lastWorkoutMarker &&
+      cached.metadata.lastHealthMarker === lastHealthMarker;
 
-  const prompt = `Generate my HOME COMPANION briefing for ${timeContext.dateString} (${timeContext.timeOfDay}).
+    if (isFresh) {
+      console.log(`[Briefing] Returning cached briefing for ${dateStr}`);
+      return NextResponse.json({ briefing: cached.content, cached: true });
+    }
+
+    console.log(`[Briefing] No fresh cache, generating new briefing...`);
+
+    const prompt = `Generate my HOME COMPANION briefing for ${timeContext.dateString} (${timeContext.timeOfDay}).
 
 ## Goal
 - Provide a comprehensive overview across: training, recovery/health, and planning/focus.
@@ -105,39 +111,57 @@ export async function GET() {
 - Keep it readable (no walls of text).
 `;
 
-  const result = await runChatFlow(
-    supabase,
-    llmClient,
-    env.USER_ID,
-    prompt,
-    env.TIMEZONE,
-    { context: 'default' }
-  );
+    const result = await runChatFlow(
+      supabase,
+      llmClient,
+      env.USER_ID,
+      prompt,
+      env.TIMEZONE,
+      { context: 'default' }
+    );
 
-  const metadata: BriefingMeta = {
-    kind: 'home_companion_briefing',
-    timeOfDay: timeContext.timeOfDay,
-    period: timeContext.period,
-    lastWorkoutMarker,
-    lastHealthMarker,
-  };
+    console.log(`[Briefing] Generated successfully, saving to whiteboard...`);
 
-  await supabase.from('whiteboard_entries').insert({
-    user_id: env.USER_ID,
-    agent_id: 'workflow:morning-flow',
-    entry_type: 'insight',
-    visibility: 'all',
-    title: `Home Briefing (${timeContext.timeOfDay})`,
-    content: result.response,
-    priority: 40,
-    context_date: dateStr,
-    tags: ['home-companion', 'auto-briefing', timeContext.timeOfDay],
-    metadata,
-    expires_at: new Date(Date.now() + 1000 * 60 * 60 * 12).toISOString(), // 12h
-  });
+    const metadata: BriefingMeta = {
+      kind: 'home_companion_briefing',
+      timeOfDay: timeContext.timeOfDay,
+      period: timeContext.period,
+      lastWorkoutMarker,
+      lastHealthMarker,
+    };
 
-  return NextResponse.json({ briefing: result.response, cached: false });
+    await supabase.from('whiteboard_entries').insert({
+      user_id: env.USER_ID,
+      agent_id: 'workflow:morning-flow',
+      entry_type: 'insight',
+      visibility: 'all',
+      title: `Home Briefing (${timeContext.timeOfDay})`,
+      content: result.response,
+      priority: 40,
+      context_date: dateStr,
+      tags: ['home-companion', 'auto-briefing', timeContext.timeOfDay],
+      metadata,
+      expires_at: new Date(Date.now() + 1000 * 60 * 60 * 12).toISOString(), // 12h
+    });
+
+    return NextResponse.json({ briefing: result.response, cached: false });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[Briefing] Error generating briefing:`, message);
+    
+    return NextResponse.json(
+      { 
+        error: 'Failed to generate briefing', 
+        details: message,
+        briefing: null 
+      },
+      { status: 500 }
+    );
+  }
 }
+
+
+
 
 
 

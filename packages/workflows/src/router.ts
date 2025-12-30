@@ -71,7 +71,7 @@ export async function routeMessage(
     const response = await llmClient.chat({
       systemPrompt: ROUTER_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userPrompt }],
-      model: 'claude-haiku-4-20250514', // Fast model for routing
+      model: 'claude-haiku-4-5-20251001', // Fast model for routing
       temperature: 0.1, // Low temp for consistent classification
       maxTokens: 150,
     });
@@ -197,6 +197,8 @@ export function quickRoute(message: string): RouteResult | null {
 
   return null; // Needs LLM routing
 }
+
+
 
 
 
