@@ -66,41 +66,43 @@ export default async function RunCompanionPage() {
   const endDate = new Date(weekStart);
   endDate.setDate(endDate.getDate() + 28);
 
-  // Query workouts directly from Supabase (bypasses WorkoutRepository caching issue)
-  const startStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
-  const endStr = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
-  
-  const { data: rawWorkouts } = await supabase
-    .from('workouts')
-    .select('*')
-    .eq('user_id', userId)
-    .gte('scheduled_date', startStr)
-    .lte('scheduled_date', endStr)
-    .order('scheduled_date', { ascending: true });
-  
-  type RawWorkout = { id: string; scheduled_date: string; status: string; [key: string]: unknown };
-  
-  // Serialize workouts from snake_case database format
-  const serializedWorkouts = ((rawWorkouts || []) as RawWorkout[]).map((w) => {
+  // TEST: Using WorkoutRepository again (after Supabase client fix)
+  const workouts = await workoutRepo.findByDateRange(userId, startDate, endDate);
+
+  // Serialize workouts for client component
+  const serializedWorkouts = workouts.map((w) => {
+    const metadata = (w as unknown as { metadata?: Record<string, unknown> }).metadata;
     return {
-      id: w.id as string,
-      title: w.title as string,
-      workoutType: w.workout_type as string,
-      status: w.status as string,
-      scheduledDate: w.scheduled_date as string | null,
-      prescribedDistanceMiles: w.prescribed_distance_miles as number | null,
-      prescribedPacePerMile: w.prescribed_pace_per_mile as string | null,
-      prescribedDescription: w.prescribed_description as string | null,
-      prescribedHrZone: w.prescribed_hr_zone as string | null,
-      plannedDurationMinutes: w.planned_duration_minutes as number | null,
-      actualDurationMinutes: w.actual_duration_minutes as number | null,
-      avgHeartRate: w.avg_heart_rate as number | null,
-      elevationGainFt: w.elevation_gain_ft as number | null,
-      startedAt: w.started_at as string | null,
-      completedAt: w.completed_at as string | null,
-      createdAt: w.created_at as string,
-      updatedAt: w.updated_at as string,
-      actualDistanceMiles: extractDistanceMiles(w.metadata as Record<string, unknown> | undefined),
+      id: w.id,
+      title: w.title,
+      workoutType: w.workoutType,
+      status: w.status,
+      scheduledDate: w.scheduledDate
+        ? typeof w.scheduledDate === 'string'
+          ? w.scheduledDate
+          : w.scheduledDate.toISOString()
+        : null,
+      prescribedDistanceMiles: w.prescribedDistanceMiles,
+      prescribedPacePerMile: w.prescribedPacePerMile,
+      prescribedDescription: w.prescribedDescription,
+      prescribedHrZone: w.prescribedHrZone,
+      plannedDurationMinutes: w.plannedDurationMinutes,
+      actualDurationMinutes: w.actualDurationMinutes,
+      avgHeartRate: w.avgHeartRate,
+      elevationGainFt: w.elevationGainFt,
+      startedAt: w.startedAt
+        ? typeof w.startedAt === 'string'
+          ? w.startedAt
+          : w.startedAt.toISOString()
+        : null,
+      completedAt: w.completedAt
+        ? typeof w.completedAt === 'string'
+          ? w.completedAt
+          : w.completedAt.toISOString()
+        : null,
+      createdAt: typeof w.createdAt === 'string' ? w.createdAt : w.createdAt.toISOString(),
+      updatedAt: typeof w.updatedAt === 'string' ? w.updatedAt : w.updatedAt.toISOString(),
+      actualDistanceMiles: extractDistanceMiles(metadata),
     };
   });
 
