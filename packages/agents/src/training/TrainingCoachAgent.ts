@@ -162,31 +162,44 @@ export class TrainingCoachAgent extends BaseAgent {
 - NEVER call analyze_workout multiple times - analyze once using the data provided
 - If you've already called a tool, DO NOT call it again
 
-## Training Plan Modification Tools - YOU HAVE THESE CAPABILITIES
-You HAVE the ability to modify the athlete's training plan directly. USE THESE TOOLS when requested:
+## YOUR TOOLS - USE THEM WHEN APPROPRIATE
 
-- **reschedule_workouts**: CALL THIS when user wants to change their running days
-  → Example: "I want to run Tues/Thurs/Fri/Sun" → Call reschedule_workouts with preferred_run_days: [2, 4, 5, 7]
-  → Example: "Move my runs to Mon/Wed/Sat" → Call reschedule_workouts with preferred_run_days: [1, 3, 6]
-  → Day numbers: 1=Monday, 2=Tuesday, 3=Wednesday, 4=Thursday, 5=Friday, 6=Saturday, 7=Sunday
-  
-- **update_workout**: CALL THIS to update a single workout
-  → Use when athlete says "move my Thursday run to Friday" or "add notes to my long run"
-  → Requires workout_id from the upcoming workouts data
-  
-- **add_nutrition_guidance**: CALL THIS when user asks about fueling
-  → Use when athlete asks "add nutrition guidance" or "what should I eat for my long runs?"
-  → Can target: 'all', 'long_runs', 'hard_workouts', or 'easy_runs'
+### LOGGING COMPLETED RUNS - sync_garmin_activity
+**USE THIS** when athlete says "log", "sync", "pull", "fetch" runs or mentions completing workouts.
+**This tool fetches actual data from Garmin** (distance, pace, HR, splits) and saves it.
+- REQUIRED: date in YYYY-MM-DD format
+- OPTIONAL: athlete_feedback (their subjective notes), perceived_exertion (RPE 1-10)
 
-- **sync_garmin_activity**: CALL THIS when user wants to log a run or sync from Garmin
-  → Use when athlete says "log my run", "sync my run", "pull my activity from Garmin", or mentions completing a workout
-  → Requires a date in YYYY-MM-DD format (e.g., "2025-12-25" for Dec 25th)
-  → This connects to Garmin, fetches the activity data (distance, pace, HR, splits), and saves it
-  → Can sync multiple days - call the tool once per date that needs syncing
-  → After syncing, analyze the workout data that's returned
+**CRITICAL - MULTIPLE RUNS = MULTIPLE TOOL CALLS:**
+If athlete mentions runs on MULTIPLE dates, you MUST call sync_garmin_activity ONCE PER DATE.
+Example: "Log my runs from Dec 25, 26, and 28"
+→ Call sync_garmin_activity(date="2025-12-25", athlete_feedback="[notes for Dec 25 run only]")
+→ Call sync_garmin_activity(date="2025-12-26", athlete_feedback="[notes for Dec 26 run only]")
+→ Call sync_garmin_activity(date="2025-12-28", athlete_feedback="[notes for Dec 28 run only]")
 
-IMPORTANT: When the user asks to change their schedule or log runs, DO NOT say you can't do it. 
-You HAVE these tools - USE THEM to make the changes directly.
+**NEVER** add notes from one date's run to another date. Parse the athlete's message to match feedback to the correct date.
+
+### MODIFYING FUTURE PLANNED WORKOUTS - update_workout
+**USE THIS** only for FUTURE scheduled workouts, not for logging completed runs.
+- Move a workout to a different date
+- Add pre-workout notes to an upcoming run
+- Requires workout_id from upcoming workouts data
+
+### CHANGING RUN DAYS - reschedule_workouts
+**USE THIS** when athlete wants to change which days they run.
+- Example: "I want to run Tues/Thurs/Fri/Sun" → Call with preferred_run_days: [2, 4, 5, 7]
+- Day numbers: 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat, 7=Sun
+
+### NUTRITION GUIDANCE - add_nutrition_guidance  
+**USE THIS** when athlete asks about fueling for workouts.
+- Targets: 'all', 'long_runs', 'hard_workouts', 'easy_runs'
+
+## IMPORTANT RULES
+1. When logging runs → USE sync_garmin_activity (not update_workout)
+2. Multiple runs = multiple tool calls (one per date)
+3. Match feedback to correct date - don't combine notes
+4. Execute ALL tool calls, then summarize results
+5. DO NOT say "I can't do this" - you HAVE these tools, USE THEM
 
 ## Today's Date: ${context.date}
 ## Timezone: ${context.timezone}`;
@@ -840,7 +853,7 @@ REMEMBER: You HAVE these modification tools. USE them when the athlete requests 
   private updateWorkoutTool(): AgentTool {
     return {
       name: 'update_workout',
-      description: 'Update a specific workout - reschedule it, add notes, or modify details. Use this when the user wants to change a scheduled workout.',
+      description: 'Modify a FUTURE PLANNED workout - reschedule it, add notes, or change details. NOT for logging completed runs (use sync_garmin_activity for that).',
       parameters: {
         type: 'object',
         properties: {
@@ -1187,21 +1200,21 @@ REMEMBER: You HAVE these modification tools. USE them when the athlete requests 
   private syncGarminActivityTool(): AgentTool {
     return {
       name: 'sync_garmin_activity',
-      description: `Fetch and sync a running activity from Garmin for a specific date. Use this when the user wants to log a run or says they completed a workout. This tool connects to Garmin, fetches the activity data (distance, pace, heart rate, splits), and saves it to the database.`,
+      description: `Fetch and sync a running activity from Garmin for ONE specific date. Call this tool ONCE PER DATE when logging multiple runs. This connects to Garmin, fetches activity data (distance, pace, HR, splits), and saves it.`,
       parameters: {
         type: 'object',
         properties: {
           date: {
             type: 'string',
-            description: 'The date to sync activity for (YYYY-MM-DD format). Required.',
+            description: 'The date to sync (YYYY-MM-DD). ONE date per call - for multiple dates, make multiple tool calls.',
           },
           force_resync: {
             type: 'boolean',
-            description: 'If true, re-sync even if activity was already synced. Default false.',
+            description: 'If true, re-sync even if already synced. Default false.',
           },
           athlete_feedback: {
             type: 'string',
-            description: 'Optional notes from the athlete about how the run felt.',
+            description: 'Athlete notes for THIS SPECIFIC DATE ONLY. Do not combine notes from different runs.',
           },
         },
         required: ['date'],
