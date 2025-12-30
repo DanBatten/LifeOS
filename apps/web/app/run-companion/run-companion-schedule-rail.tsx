@@ -111,11 +111,6 @@ function WorkoutCard({
 }) {
   const type = workout.workoutType?.toLowerCase?.() || '';
   const status = workout.status;
-  
-  // DEBUG: Log status to console for troubleshooting
-  if (typeof window !== 'undefined') {
-    console.log(`[WorkoutCard] ${workout.scheduledDate} | status="${status}" | variant="${variant}"`);
-  }
 
   const titleAndDesc = `${workout.title || ''} ${workout.prescribedDescription || ''}`;
   const isRest = /rest/i.test(workout.title) || type === 'rest';
@@ -402,17 +397,6 @@ function groupWorkoutsByDate(workouts: SerializedWorkout[]): Map<string, Seriali
 export function RunCompanionScheduleRail({ workouts }: { workouts: SerializedWorkout[] }) {
   const todayRef = useRef<HTMLDivElement>(null);
   const workoutsByDate = useMemo(() => groupWorkoutsByDate(workouts), [workouts]);
-  
-  // DEBUG: Show what data the component received
-  const debugInfo = useMemo(() => {
-    return workouts
-      .filter(w => {
-        const date = w.scheduledDate?.split('T')[0] || '';
-        return date >= '2025-12-23' && date <= '2025-12-30';
-      })
-      .map(w => `${w.scheduledDate?.split('T')[0]}:${w.status}`)
-      .join(' | ');
-  }, [workouts]);
 
   const nextPlanned = useMemo(() => {
     // IMPORTANT: avoid `new Date('YYYY-MM-DD')` comparisons (UTC parsing causes off-by-one in local time).
@@ -453,10 +437,6 @@ export function RunCompanionScheduleRail({ workouts }: { workouts: SerializedWor
     <div className="rounded-xl border border-black/10 bg-transparent overflow-hidden h-[calc(100vh-140px)] flex flex-col">
       <div className="px-5 py-4 border-b border-black/10 bg-transparent">
         <div className="text-[11px] font-normal tracking-widest text-black/50">CALENDAR</div>
-        {/* DEBUG: Show what data arrived */}
-        <div className="text-[10px] font-mono text-red-500 mt-1 break-all">
-          DEBUG Dec 23-30: {debugInfo || 'NO DATA'}
-        </div>
       </div>
 
       <div className="p-5 flex-1 overflow-auto pr-2 space-y-8">

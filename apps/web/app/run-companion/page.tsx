@@ -66,7 +66,7 @@ export default async function RunCompanionPage() {
   const endDate = new Date(weekStart);
   endDate.setDate(endDate.getDate() + 28);
 
-  // DEBUG: Query Supabase directly to compare with WorkoutRepository
+  // Query workouts directly from Supabase (bypasses WorkoutRepository caching issue)
   const startStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
   const endStr = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
   
@@ -79,14 +79,8 @@ export default async function RunCompanionPage() {
     .order('scheduled_date', { ascending: true });
   
   type RawWorkout = { id: string; scheduled_date: string; status: string; [key: string]: unknown };
-  console.log('[run-companion] Direct Supabase query for Dec 23-30:');
-  for (const w of ((rawWorkouts || []) as RawWorkout[])) {
-    if (w.scheduled_date >= '2025-12-23' && w.scheduled_date <= '2025-12-30') {
-      console.log(`  ${w.scheduled_date} | status=${w.status} | id=${w.id}`);
-    }
-  }
   
-  // Use direct Supabase results - serialize directly from snake_case
+  // Serialize workouts from snake_case database format
   const serializedWorkouts = ((rawWorkouts || []) as RawWorkout[]).map((w) => {
     return {
       id: w.id as string,
