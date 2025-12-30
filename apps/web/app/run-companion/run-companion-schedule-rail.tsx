@@ -111,6 +111,11 @@ function WorkoutCard({
 }) {
   const type = workout.workoutType?.toLowerCase?.() || '';
   const status = workout.status;
+  
+  // DEBUG: Log status to console for troubleshooting
+  if (typeof window !== 'undefined') {
+    console.log(`[WorkoutCard] ${workout.scheduledDate} | status="${status}" | variant="${variant}"`);
+  }
 
   const titleAndDesc = `${workout.title || ''} ${workout.prescribedDescription || ''}`;
   const isRest = /rest/i.test(workout.title) || type === 'rest';
@@ -318,6 +323,8 @@ function WorkoutCard({
         <div className="text-[13px] font-normal tracking-wide text-[#4b2a24]">{labelTop}</div>
         {status === 'completed'
           ? chip({ label: 'COMPLETE', tone: 'green' })
+          : status === 'skipped'
+          ? chip({ label: 'SKIPPED', tone: 'gray' })
           : chip({ label: 'PLANNED', tone: 'gray' })}
       </div>
 
