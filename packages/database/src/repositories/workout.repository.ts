@@ -4,8 +4,6 @@ import type { CreateWorkout, CompleteWorkout } from '@lifeos/core';
 import { subtractDays } from '@lifeos/core';
 import { BaseRepository } from './base.repository.js';
 
-// Force rebuild: 2025-12-31
-
 export class WorkoutRepository extends BaseRepository<
   Workout,
   CreateWorkout,

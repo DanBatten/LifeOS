@@ -66,7 +66,6 @@ export default async function RunCompanionPage() {
   const endDate = new Date(weekStart);
   endDate.setDate(endDate.getDate() + 28);
 
-  // TEST: Using WorkoutRepository again (after Supabase client fix)
   const workouts = await workoutRepo.findByDateRange(userId, startDate, endDate);
 
   // Serialize workouts for client component
