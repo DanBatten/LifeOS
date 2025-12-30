@@ -237,6 +237,12 @@ function detectModificationRequest(message: string): boolean {
     /\b(my|the)\s+schedule\b/i,
     /\brest\s+days?\b/i,
     /\bmove\s+(my|the|this)\b/i,
+    // Sync/log patterns - trigger Garmin sync tool
+    /\b(sync|synch|log|pull|fetch)\s+(my|the|those|these)?\s*(run|runs|workout|workouts|activity|activities)/i,
+    /\b(sync|synch|log)\s+(from|my)\s*(garmin)?/i,
+    /\bneed\s+to\s+(log|sync)/i,
+    /\bcompleted\s+(my|a|the)?\s*(run|workout)/i,
+    /\bdid\s+(my|a|the)\s*(run|workout|long run|intervals|tempo)/i,
   ];
   
   return modificationPatterns.some(pattern => pattern.test(message));
