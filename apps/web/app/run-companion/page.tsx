@@ -68,6 +68,17 @@ export default async function RunCompanionPage() {
 
   const workouts = await workoutRepo.findByDateRange(userId, startDate, endDate);
 
+  // Debug: Log what the server is receiving from the database
+  console.log('[run-companion] Server fetched workouts:');
+  for (const w of workouts) {
+    const dateStr = w.scheduledDate instanceof Date 
+      ? w.scheduledDate.toISOString().split('T')[0] 
+      : String(w.scheduledDate || '').split('T')[0];
+    if (dateStr >= '2025-12-20' && dateStr <= '2025-12-31') {
+      console.log(`  ${dateStr} | status=${w.status} | ${w.title?.substring(0, 40)}`);
+    }
+  }
+
   // Serialize and enrich workouts similarly to /schedule
   const serializedWorkouts = workouts.map((w) => {
     const metadata = (w as unknown as { metadata?: Record<string, unknown> }).metadata;
