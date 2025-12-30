@@ -51,14 +51,35 @@ export default async function SchedulePage() {
   const env = getEnv();
   const userId = env.USER_ID;
 
-  const workoutRepo = new WorkoutRepository(supabase);
-
   // Get 4 weeks of workouts (2 past, current, 2 future)
   const weekStart = getWeekStart(new Date());
   const startDate = addDays(weekStart, -14); // 2 weeks ago
   const endDate = addDays(weekStart, 28); // 4 weeks from start of this week
 
-  const workouts = await workoutRepo.findByDateRange(userId, startDate, endDate);
+  // Query Supabase directly (bypasses WorkoutRepository caching issue)
+  const startStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
+  const endStr = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
+  
+  type RawWorkout = { id: string; scheduled_date: string; status: string; [key: string]: unknown };
+  const { data: rawWorkouts } = await supabase
+    .from('workouts')
+    .select('*')
+    .eq('user_id', userId)
+    .gte('scheduled_date', startStr)
+    .lte('scheduled_date', endStr)
+    .order('scheduled_date', { ascending: true });
+
+  // Transform from snake_case to camelCase
+  function snakeToCamel(obj: Record<string, unknown>): Record<string, unknown> {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      const camelKey = key.replace(/_([a-z])/g, (_: string, letter: string) => letter.toUpperCase());
+      result[camelKey] = value;
+    }
+    return result;
+  }
+  
+  const workouts = ((rawWorkouts || []) as RawWorkout[]).map((item) => snakeToCamel(item)) as unknown as Awaited<ReturnType<WorkoutRepository['findByDateRange']>>;
 
   // Fetch user's running preferences for run plan generation
   const { data: userData } = await supabase
