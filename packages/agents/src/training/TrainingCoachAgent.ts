@@ -2,8 +2,7 @@ import { BaseAgent } from '../base/BaseAgent.js';
 import type { AgentContext, AgentTool, WhiteboardEntryPayload } from '../base/types.js';
 import type { LLMProvider } from '@lifeos/llm';
 import { getAgentModelConfig } from '@lifeos/llm';
-// NOTE: Garmin real-time tools disabled - too slow
-// import { createGarminClient, metersToMiles, formatPace } from '@lifeos/garmin';
+import { syncLatestActivity } from '@lifeos/skills';
 
 // Type definitions for context data
 interface WeekData {
@@ -116,10 +115,8 @@ export class TrainingCoachAgent extends BaseAgent {
       this.updateWorkoutTool(),
       this.rescheduleWorkoutsTool(),
       this.addNutritionGuidanceTool(),
-      // NOTE: Garmin real-time tools disabled - too slow (spawns Python process each call)
-      // Use synced database data instead. Re-enable when we have persistent MCP connection.
-      // this.getGarminActivityTool(),
-      // this.getGarminRecentActivitiesTool(),
+      // Garmin sync tool - fetches and syncs activities from Garmin
+      this.syncGarminActivityTool(),
     ];
   }
 
@@ -181,7 +178,14 @@ You HAVE the ability to modify the athlete's training plan directly. USE THESE T
   → Use when athlete asks "add nutrition guidance" or "what should I eat for my long runs?"
   → Can target: 'all', 'long_runs', 'hard_workouts', or 'easy_runs'
 
-IMPORTANT: When the user asks to change their schedule, DO NOT say you can't do it. 
+- **sync_garmin_activity**: CALL THIS when user wants to log a run or sync from Garmin
+  → Use when athlete says "log my run", "sync my run", "pull my activity from Garmin", or mentions completing a workout
+  → Requires a date in YYYY-MM-DD format (e.g., "2025-12-25" for Dec 25th)
+  → This connects to Garmin, fetches the activity data (distance, pace, HR, splits), and saves it
+  → Can sync multiple days - call the tool once per date that needs syncing
+  → After syncing, analyze the workout data that's returned
+
+IMPORTANT: When the user asks to change their schedule or log runs, DO NOT say you can't do it. 
 You HAVE these tools - USE THEM to make the changes directly.
 
 ## Today's Date: ${context.date}
@@ -1172,6 +1176,111 @@ REMEMBER: You HAVE these modification tools. USE them when the athlete requests 
           message: `Added nutrition guidance to ${updatedWorkouts.length} workouts`,
           workouts: updatedWorkouts,
         };
+      },
+    };
+  }
+
+  // ===========================================
+  // GARMIN SYNC TOOL
+  // ===========================================
+
+  private syncGarminActivityTool(): AgentTool {
+    return {
+      name: 'sync_garmin_activity',
+      description: `Fetch and sync a running activity from Garmin for a specific date. Use this when the user wants to log a run or says they completed a workout. This tool connects to Garmin, fetches the activity data (distance, pace, heart rate, splits), and saves it to the database.`,
+      parameters: {
+        type: 'object',
+        properties: {
+          date: {
+            type: 'string',
+            description: 'The date to sync activity for (YYYY-MM-DD format). Required.',
+          },
+          force_resync: {
+            type: 'boolean',
+            description: 'If true, re-sync even if activity was already synced. Default false.',
+          },
+          athlete_feedback: {
+            type: 'string',
+            description: 'Optional notes from the athlete about how the run felt.',
+          },
+        },
+        required: ['date'],
+      },
+      execute: async (args: Record<string, unknown>, context: AgentContext) => {
+        const date = args.date as string;
+        const forceResync = (args.force_resync as boolean) || false;
+        const athleteFeedback = args.athlete_feedback as string | undefined;
+
+        try {
+          const result = await syncLatestActivity(context.supabase, context.userId, {
+            date,
+            forceResync,
+          });
+
+          if (!result.success) {
+            return {
+              success: false,
+              error: result.error || 'Failed to sync activity',
+              date,
+            };
+          }
+
+          if (result.action === 'no_activity') {
+            return {
+              success: true,
+              action: 'no_activity',
+              message: `No running activity found in Garmin for ${date}. Make sure the activity has synced to Garmin Connect.`,
+              date,
+            };
+          }
+
+          // If we have athlete feedback, update the workout
+          if (athleteFeedback && result.workout) {
+            await context.supabase
+              .from('workouts')
+              .update({
+                athlete_feedback: athleteFeedback,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', result.workout.id);
+          }
+
+          const workout = result.workout;
+          return {
+            success: true,
+            action: result.action,
+            message: `Successfully ${result.action} workout for ${date}`,
+            workout: workout ? {
+              id: workout.id,
+              title: workout.title,
+              date: workout.scheduledDate,
+              status: workout.status,
+              // Actual data from Garmin
+              actualDistanceMiles: workout.actualDistanceMiles,
+              actualDurationMinutes: workout.actualDurationMinutes,
+              actualPacePerMile: workout.actualPacePerMile,
+              avgHeartRate: workout.avgHeartRate,
+              maxHeartRate: workout.maxHeartRate,
+              elevationGainFt: workout.elevationGainFt,
+              cadenceAvg: workout.cadenceAvg,
+              calories: workout.calories,
+              splits: workout.splits,
+              // Prescribed data (if matched to training plan)
+              prescribedDistanceMiles: workout.prescribedDistanceMiles,
+              prescribedPacePerMile: workout.prescribedPacePerMile,
+              prescribedDescription: workout.prescribedDescription,
+              matchedToPlannedWorkout: workout.matchedToPlannedWorkout,
+              garminActivityId: workout.garminActivityId,
+            } : null,
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return {
+            success: false,
+            error: message,
+            date,
+          };
+        }
       },
     };
   }
