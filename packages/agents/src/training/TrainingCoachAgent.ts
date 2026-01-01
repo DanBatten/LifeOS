@@ -43,6 +43,7 @@ interface TrainingLoad {
 }
 
 interface Workout {
+  id?: string;
   title?: string;
   scheduled_date?: string;
   prescribed_description?: string;
@@ -153,6 +154,15 @@ export class TrainingCoachAgent extends BaseAgent {
 - Give actionable forward guidance
 - Acknowledge good execution; don't just focus on problems
 - When concerned, be clear about severity and required action
+
+## ACTION-FIRST BEHAVIOR (CRITICAL)
+**You are an ASSISTANT, not a GATEKEEPER.**
+- When the athlete asks you to do something → DO IT FIRST, clarify later if needed
+- Don't ask unnecessary questions like "which date?" or "are you sure?"
+- If they say "yesterday" → calculate the date yourself using their timezone
+- If they say "log my run" → call sync_garmin_activity immediately
+- Only ask for clarification when the request is genuinely ambiguous
+- NEVER say "I can't" when you have tools available - TRY the tool first!
 
 ## CRITICAL: Tool Usage Rules
 - For SIMPLE QUESTIONS like "how am I looking for tomorrow?" or "should I do my run?":
@@ -461,17 +471,31 @@ Using adapt_plan, determine:
     const recentWorkouts = (data.recentWorkouts as Workout[]) || [];
     const healthData = (data.todayHealth as HealthData) || {};
 
+    // Calculate dates relative to user's timezone
+    const userTimezone = context.timezone || 'Pacific/Auckland';
+    const now = new Date();
+    const userNow = new Date(now.toLocaleString('en-US', { timeZone: userTimezone }));
+    const todayInUserTz = userNow.toISOString().split('T')[0];
+    const yesterdayInUserTz = new Date(userNow.getTime() - 86400000).toISOString().split('T')[0];
+
     return `The athlete sent this message:
 "${userMessage}"
 
+## CRITICAL TIMEZONE INFO
+- Athlete's timezone: ${userTimezone}
+- TODAY in athlete's timezone: ${todayInUserTz}
+- YESTERDAY in athlete's timezone: ${yesterdayInUserTz}
+- When athlete says "yesterday" or "last run", use: ${yesterdayInUserTz}
+- When athlete says "today", use: ${todayInUserTz}
+
 ## UPCOMING WORKOUTS (with IDs for modification)
 ${upcomingWorkouts.map((w) =>
-  `- [ID: ${w.id || 'unknown'}] ${w.scheduled_date}: ${w.title} (${w.prescribed_distance_miles || '?'} mi)\n  Type: ${w.workout_type || 'run'}`
+  `- [ID: ${w.id || 'unknown'}] ${w.scheduled_date}: ${w.title} (${w.prescribed_distance_miles || '?'} mi) - Status: ${w.status || 'planned'}`
 ).join('\n') || 'No upcoming workouts'}
 
-## RECENT COMPLETED WORKOUTS
-${recentWorkouts.slice(0, 5).map((w) =>
-  `- ${w.scheduled_date}: ${w.title} - ${w.actual_duration_minutes || '?'} min, ${w.avg_heart_rate || '?'} bpm`
+## RECENT WORKOUTS (last 7 days)
+${recentWorkouts.slice(0, 7).map((w) =>
+  `- [ID: ${w.id || 'unknown'}] ${w.scheduled_date}: ${w.title} - Status: ${w.status || '?'}, ${w.actual_duration_minutes || '?'} min, ${w.avg_heart_rate || '?'} bpm`
 ).join('\n') || 'No recent workouts'}
 
 ## TODAY'S HEALTH
@@ -481,21 +505,34 @@ ${recentWorkouts.slice(0, 5).map((w) =>
 
 ---
 
-INSTRUCTIONS:
-1. If they're asking to CHANGE their schedule (e.g., "run on Tues/Thurs/Fri/Sun"):
-   → USE the reschedule_workouts tool with the day numbers they want
-   → Day numbers: 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat, 7=Sun
+## ACTION-FIRST INSTRUCTIONS
 
-2. If they want to ADD nutrition guidance:
-   → USE the add_nutrition_guidance tool
+**RULE #1: ACT FIRST, CLARIFY ONLY IF TRULY NECESSARY**
+- If the athlete asks to log/sync a run → CALL sync_garmin_activity IMMEDIATELY
+- Don't ask "which date?" - calculate it from their timezone and words like "yesterday"
+- Don't ask "are you sure?" - just do it
+- Only ask for clarification if the request is genuinely ambiguous
 
-3. If they want to MOVE a single workout:
-   → USE the update_workout tool with the workout's ID from the list above
+**RULE #2: LOG/SYNC RUNS → USE sync_garmin_activity**
+When athlete says "log my run", "sync my run", "pull my activity", etc:
+1. Determine the date (use timezone info above)
+2. Call sync_garmin_activity(date="YYYY-MM-DD", athlete_feedback="their notes")
+3. Report what was synced
+DO NOT say "I can't find it" without TRYING the tool first!
 
-4. For simple questions:
-   → Answer directly from the data provided
+**RULE #3: SCHEDULE CHANGES → USE reschedule_workouts**
+When athlete wants to change which days they run:
+→ Call reschedule_workouts with preferred_run_days: [day numbers]
+→ Day numbers: 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat, 7=Sun
 
-REMEMBER: You HAVE these modification tools. USE them when the athlete requests changes.`;
+**RULE #4: MOVE A WORKOUT → USE update_workout**
+When athlete wants to move a specific workout to a different date.
+
+**RULE #5: NUTRITION GUIDANCE → USE add_nutrition_guidance**
+When athlete asks about fueling.
+
+**RULE #6: NEVER SAY "I CAN'T" WHEN YOU HAVE TOOLS**
+You HAVE these tools. USE them. If a tool fails, report the error - but TRY first!`;
   }
 
   // Tool implementations

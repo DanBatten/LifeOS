@@ -355,6 +355,13 @@ function buildTrainingCoachPrompt(context: AgentContext, syncedWorkout?: ChatFlo
   const recentWorkouts = context.recentWorkouts.slice(0, 5);
   const health = context.todayHealth;
 
+  // Calculate timezone-aware dates
+  const userTimezone = context.timezone || 'Pacific/Auckland';
+  const now = new Date();
+  const userNow = new Date(now.toLocaleString('en-US', { timeZone: userTimezone }));
+  const todayInUserTz = userNow.toISOString().split('T')[0];
+  const yesterdayInUserTz = new Date(userNow.getTime() - 86400000).toISOString().split('T')[0];
+
   // Build the synced workout section if available (freshly synced from Garmin)
   let syncedWorkoutSection = '';
   if (syncedWorkout) {
@@ -463,7 +470,13 @@ You MUST analyze this workout correctly:
 `;
   }
 
-  return `You are an expert running coach for ${context.userName}. Today is ${context.date}.
+  return `You are an expert running coach for ${context.userName}.
+
+## TIMEZONE & DATE REFERENCE
+- Athlete's timezone: ${userTimezone}  
+- TODAY in athlete's timezone: ${todayInUserTz}
+- YESTERDAY in athlete's timezone: ${yesterdayInUserTz}
+- Use these dates when athlete says "today", "yesterday", "last run", etc.
 ${syncedWorkoutSection}
 
 ## Training Context
