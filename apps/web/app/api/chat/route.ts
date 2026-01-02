@@ -4,6 +4,7 @@ import { createLLMClient } from '@lifeos/llm';
 import { runChatFlow, type ConversationMessage } from '@lifeos/workflows';
 import { getSupabase, getSupabaseService, insertRecord } from '@/lib/supabase';
 import { getEnv } from '@/lib/env';
+import { getUserSettings } from '@/lib/user-settings';
 import { syncGarminMetrics, syncLatestActivity } from '@lifeos/skills';
 import {
   createGarminClient,
@@ -826,6 +827,10 @@ export async function POST(request: NextRequest) {
     const supabaseService = getSupabaseService();
     const llmClient = createLLMClient();
 
+    // Get user settings from database (timezone, name, etc.)
+    const userSettings = await getUserSettings(env.USER_ID);
+    const timezone = userSettings.timezone;
+
     // Get or create session ID
     const currentSessionId = sessionId || crypto.randomUUID();
 
@@ -833,7 +838,7 @@ export async function POST(request: NextRequest) {
     const commandResult = await handleChatCommand(message, {
       userId: env.USER_ID,
       sessionId: currentSessionId,
-      timezone: env.TIMEZONE,
+      timezone,
       supabaseService,
       llmClient,
       supabaseAnon: supabase,
@@ -899,7 +904,7 @@ export async function POST(request: NextRequest) {
       if (!activitySyncResult?.workout) {
         console.log('[Chat] No synced workout, checking database for today\'s workout...');
         try {
-          const todayDate = new Date().toLocaleDateString('en-CA', { timeZone: env.TIMEZONE });
+          const todayDate = new Date().toLocaleDateString('en-CA', { timeZone: timezone });
           const { data: todayWorkout } = await supabaseService
             .from('workouts')
             .select('*')
@@ -981,7 +986,7 @@ export async function POST(request: NextRequest) {
       llmClient,
       env.USER_ID,
       message,
-      env.TIMEZONE,
+      timezone,
       {
         conversationHistory,
         context: effectiveContext,

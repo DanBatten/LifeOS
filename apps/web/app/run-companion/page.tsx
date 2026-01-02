@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { getSupabase } from '@/lib/supabase';
 import { getEnv } from '@/lib/env';
+import { getUserSettings } from '@/lib/user-settings';
 import { HealthRepository, WorkoutRepository, WhiteboardRepository, ShoeRepository } from '@lifeos/database';
 import { createTimeContext } from '@/lib/time-context';
 import { RunCompanionView } from './run-companion.view';
@@ -40,8 +41,10 @@ export default async function RunCompanionPage() {
   const supabase = getSupabase();
   const env = getEnv();
 
-  const userId = env.USER_ID;
-  const timezone = env.TIMEZONE;
+  // Get user settings from database (timezone, name, etc.)
+  const userSettings = await getUserSettings(env.USER_ID);
+  const userId = userSettings.userId;
+  const timezone = userSettings.timezone;
 
   const healthRepo = new HealthRepository(supabase, timezone);
   const workoutRepo = new WorkoutRepository(supabase);
@@ -49,7 +52,7 @@ export default async function RunCompanionPage() {
   const shoeRepo = new ShoeRepository(supabase);
 
   const now = new Date();
-  const timeContext = createTimeContext({ timezone, userName: 'Dan' });
+  const timeContext = createTimeContext({ timezone, userName: userSettings.userName });
 
   // ---- Schedule data (reuse schedule logic shape) ----
   // Range: 2 weeks past -> 4 weeks future (same as /schedule)

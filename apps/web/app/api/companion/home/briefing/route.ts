@@ -3,6 +3,7 @@ import { createLLMClient } from '@lifeos/llm';
 import { runChatFlow } from '@lifeos/workflows';
 import { getSupabaseService } from '@/lib/supabase';
 import { getEnv } from '@/lib/env';
+import { getUserSettings } from '@/lib/user-settings';
 import { createTimeContext } from '@/lib/time-context';
 
 // Prevent static generation - this route requires runtime data
@@ -80,10 +81,15 @@ export async function GET() {
 
   try {
     const llmClient = createLLMClient();
-    const timeContext = createTimeContext({ timezone: env.TIMEZONE, userName: 'Dan' });
-    const dateStr = todayDateString(env.TIMEZONE);
+    
+    // Get user settings from database (timezone, name, etc.)
+    const userSettings = await getUserSettings(env.USER_ID);
+    const timezone = userSettings.timezone;
+    
+    const timeContext = createTimeContext({ timezone, userName: userSettings.userName });
+    const dateStr = todayDateString(timezone);
 
-    console.log(`[Briefing] Generating for ${dateStr} (${timeContext.timeOfDay})`);
+    console.log(`[Briefing] Generating for ${dateStr} (${timeContext.timeOfDay}) in timezone ${timezone}`);
 
     const { workout: lastWorkoutMarker, health: lastHealthMarker } = await getLatestMarker(supabase, env.USER_ID);
     const cached = await getCachedBriefing(supabase, env.USER_ID, dateStr);
@@ -119,7 +125,7 @@ export async function GET() {
       llmClient,
       env.USER_ID,
       prompt,
-      env.TIMEZONE,
+      timezone,
       { context: 'default' }
     );
 
