@@ -355,8 +355,8 @@ function buildTrainingCoachPrompt(context: AgentContext, syncedWorkout?: ChatFlo
   const recentWorkouts = context.recentWorkouts.slice(0, 5);
   const health = context.todayHealth;
 
-  // Calculate timezone-aware dates
-  const userTimezone = context.timezone || 'Pacific/Auckland';
+  // Calculate timezone-aware dates (timezone comes from user's database settings)
+  const userTimezone = context.timezone || 'America/Los_Angeles';
   const now = new Date();
   const userNow = new Date(now.toLocaleString('en-US', { timeZone: userTimezone }));
   const todayInUserTz = userNow.toISOString().split('T')[0];

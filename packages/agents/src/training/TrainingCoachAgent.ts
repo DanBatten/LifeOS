@@ -471,8 +471,8 @@ Using adapt_plan, determine:
     const recentWorkouts = (data.recentWorkouts as Workout[]) || [];
     const healthData = (data.todayHealth as HealthData) || {};
 
-    // Calculate dates relative to user's timezone
-    const userTimezone = context.timezone || 'Pacific/Auckland';
+    // Calculate dates relative to user's timezone (from their settings)
+    const userTimezone = context.timezone || 'America/Los_Angeles';
     const now = new Date();
     const userNow = new Date(now.toLocaleString('en-US', { timeZone: userTimezone }));
     const todayInUserTz = userNow.toISOString().split('T')[0];

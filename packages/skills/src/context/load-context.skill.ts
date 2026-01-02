@@ -117,14 +117,27 @@ interface WeeklySummary {
 
 /**
  * Load comprehensive context for agent interpretation
+ * 
+ * @param timezone - Fallback timezone if not set in user preferences
+ *                   The user's database timezone takes precedence
  */
 export async function loadAgentContext(
   supabase: SupabaseClient,
   userId: string,
-  timezone: string = 'America/Los_Angeles'
+  fallbackTimezone: string = 'America/Los_Angeles'
 ): Promise<AgentContext> {
+  // First, fetch user to get their timezone preference
+  const { data: userForTz } = await supabase
+    .from('users')
+    .select('timezone')
+    .eq('id', userId)
+    .single();
+  
+  // Use user's saved timezone, or fallback to passed timezone
+  const timezone = userForTz?.timezone || fallbackTimezone;
+  
   const today = getTodayISO(timezone);
-  logger.info(`[Skill:LoadAgentContext] Loading context for ${today}`);
+  logger.info(`[Skill:LoadAgentContext] Loading context for ${today} (timezone: ${timezone})`);
 
   // Parallel fetch all data
   const [
