@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { getNutritionSummary } from '@/lib/nutrition-guidance';
 
 interface SerializedWorkout {
   id: string;
@@ -277,22 +278,32 @@ function WorkoutCard({
               </div>
             </div>
 
-            <div className="mt-4 space-y-4 text-[13px] leading-relaxed font-light text-[#4b2a24]/85">
-              <div>
-                <div className="font-normal">Pre-Run Nutrition</div>
-                <div>
-                  Oatmeal with a banana and honey, or toast with peanut butter. Aiming for 300 or so calories - high carb/low fat. Enough to give you the right energy without feeling sluggish.
+            {(() => {
+              const nutrition = getNutritionSummary({
+                workoutType: workout.workoutType,
+                title: workout.title,
+                prescribedDistanceMiles: workout.prescribedDistanceMiles ?? null,
+                prescribedDescription: workout.prescribedDescription ?? null,
+                prescribedPacePerMile: workout.prescribedPacePerMile ?? null,
+                plannedDurationMinutes: workout.plannedDurationMinutes ?? null,
+              });
+              return (
+                <div className="mt-4 space-y-4 text-[13px] leading-relaxed font-light text-[#4b2a24]/85">
+                  <div>
+                    <div className="font-normal">Pre-Run Nutrition</div>
+                    <div>{nutrition.preRun}</div>
+                  </div>
+                  <div>
+                    <div className="font-normal">Run Fueling</div>
+                    <div>{nutrition.duringRun}</div>
+                  </div>
+                  <div>
+                    <div className="font-normal">Hydration</div>
+                    <div>{nutrition.hydration}</div>
+                  </div>
                 </div>
-              </div>
-              <div>
-                <div className="font-[800]">Run Fueling</div>
-                <div>No fueling required on an easy run at this length.</div>
-              </div>
-              <div>
-                <div className="font-normal">Hydration</div>
-                <div>18-20oz with electrolytes post run.</div>
-              </div>
-            </div>
+              );
+            })()}
           </div>
         </div>
       </div>
