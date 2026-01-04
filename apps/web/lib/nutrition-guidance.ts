@@ -195,12 +195,29 @@ function getDuringRunGuidance(
     };
   }
   
-  // Marathon pace runs
-  if (category === 'marathon_pace' && duration >= 60) {
+  // Marathon pace runs - always recommend practicing race nutrition
+  if (category === 'marathon_pace') {
+    if (duration >= 50 || distance >= 6) {
+      return {
+        title: 'Run Fueling',
+        description: 'Use this as race-day rehearsal. Take a gel at the midpoint or around 40-45 minutes in. Practice with the same products you\'ll use on race day.',
+        needed: true,
+      };
+    }
+    // Shorter MP runs (5mi or less)
     return {
       title: 'Run Fueling',
-      description: 'Practice race-day fueling: take a gel at the midpoint or after 45-50 minutes. Use the same products you\'ll use on race day.',
-      needed: true,
+      description: 'Optional but recommended: practice taking a gel during MP efforts to rehearse race-day nutrition, even if not strictly needed for this distance.',
+      needed: false,
+    };
+  }
+  
+  // Tempo/threshold runs over 45 min
+  if ((category === 'tempo' || category === 'threshold') && duration >= 45) {
+    return {
+      title: 'Run Fueling',
+      description: 'Optional: a gel midway through can help maintain quality in the final segment. Good opportunity to practice fueling under effort.',
+      needed: false,
     };
   }
   

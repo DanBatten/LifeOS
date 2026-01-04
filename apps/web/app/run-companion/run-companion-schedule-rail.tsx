@@ -205,10 +205,42 @@ function WorkoutCard({
       || formatPaceRange(workout.prescribedDescription || null)
       || '8-8:15';
     const paceRange = extractedPace;
-    // Default to daily trainer - in future, fetch from workout.shoe_id or recommend based on type
-    const shoeLabel = isLong ? 'Long Run' : 'Daily Trainer';
-    const shoeName = isLong ? 'ASICS Gel Nimbus 26' : 'Adidas Adizero Evo SL';
-    const shoeImage = isLong ? '/shoes/asics-gel-nimbus.png' : '/shoes/adidas-adizero-evo-sl.png';
+    
+    // Recommend shoes based on workout type
+    // TODO: In future, fetch from workout.shoe_id or user preferences
+    const getShoeRecommendation = () => {
+      if (isMarathonPace || isInterval || isThreshold) {
+        return {
+          label: 'Race/Tempo',
+          name: 'Nike Vaporfly 3',
+          image: '/shoes/nike-vaporfly.png',
+        };
+      }
+      if (isTempo) {
+        return {
+          label: 'Tempo Trainer',
+          name: 'Adidas Adizero Evo SL',
+          image: '/shoes/adidas-adizero-evo-sl.png',
+        };
+      }
+      if (isLong) {
+        return {
+          label: 'Long Run',
+          name: 'ASICS Gel Nimbus 26',
+          image: '/shoes/asics-gel-nimbus.png',
+        };
+      }
+      // Easy runs / default
+      return {
+        label: 'Daily Trainer',
+        name: 'Adidas Adizero Evo SL',
+        image: '/shoes/adidas-adizero-evo-sl.png',
+      };
+    };
+    const shoeRec = getShoeRecommendation();
+    const shoeLabel = shoeRec.label;
+    const shoeName = shoeRec.name;
+    const shoeImage = shoeRec.image;
     // Build label: "TODAY'S" prefix only if actually today, then the run category
     const prefix = isActuallyToday ? "TODAY'S " : '';
     const categoryUpper = runCategoryLabel.toUpperCase();
