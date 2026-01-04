@@ -207,13 +207,13 @@ function WorkoutCard({
     const paceRange = extractedPace;
     
     // Recommend shoes based on workout type
-    // TODO: In future, fetch from workout.shoe_id or user preferences
+    // TODO: In future, fetch from workout.shoe_id or user's shoe preferences in DB
     const getShoeRecommendation = () => {
       if (isMarathonPace || isInterval || isThreshold) {
         return {
-          label: 'Race/Tempo',
-          name: 'Nike Vaporfly 3',
-          image: '/shoes/nike-vaporfly.png',
+          label: 'Race Shoe',
+          name: 'Adidas Adios Pro 4',
+          image: '/shoes/adidas-adios-pro-4.png',
         };
       }
       if (isTempo) {
