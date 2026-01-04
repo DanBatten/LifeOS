@@ -22,6 +22,7 @@ interface SerializedWorkout {
   avgHeartRate?: number | null;
   elevationGainFt?: number | null;
   actualDistanceMiles?: number | null;
+  shoeId?: string | null;
 }
 
 interface SerializedShoe {

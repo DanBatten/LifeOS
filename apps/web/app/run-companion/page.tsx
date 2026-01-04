@@ -105,6 +105,7 @@ export default async function RunCompanionPage() {
       createdAt: typeof w.createdAt === 'string' ? w.createdAt : w.createdAt.toISOString(),
       updatedAt: typeof w.updatedAt === 'string' ? w.updatedAt : w.updatedAt.toISOString(),
       actualDistanceMiles: extractDistanceMiles(metadata),
+      shoeId: w.shoeId || null, // User's shoe selection override
     };
   });
 

@@ -362,6 +362,9 @@ export interface Workout {
   recommendations?: string[];
   adaptationTriggers?: string[];
   
+  // Gear
+  shoeId?: string;
+  
   // Legacy fields
   plannedIntensity?: number;
   actualIntensity?: number;

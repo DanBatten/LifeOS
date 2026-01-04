@@ -33,6 +33,7 @@ interface SerializedWorkout {
   elevationGainFt?: number | null;
   actualDistanceMiles?: number | null;
   actualPace?: string | null;
+  shoeId?: string | null; // User's shoe selection override
 }
 
 function chip({ label, tone }: { label: string; tone: 'green' | 'gray' | 'orange' | 'brown' }) {
@@ -127,7 +128,8 @@ function WorkoutCard({
   onShoeChange?: (workoutId: string, shoeId: string) => void;
 }) {
   const [showShoeSelector, setShowShoeSelector] = useState(false);
-  const [selectedShoeId, setSelectedShoeId] = useState<string | null>(null);
+  // Initialize with saved shoe selection from database
+  const [selectedShoeId, setSelectedShoeId] = useState<string | null>(workout.shoeId || null);
   const type = workout.workoutType?.toLowerCase?.() || '';
   const status = workout.status;
 
