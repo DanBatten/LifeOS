@@ -1,9 +1,21 @@
 'use client';
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { getNutritionSummary } from '@/lib/nutrition-guidance';
+
+interface SerializedShoe {
+  id: string;
+  brand: string;
+  model: string;
+  nickname: string | null;
+  category: string;
+  totalMiles: number;
+  maxMiles: number | null;
+  imageUrl: string | null;
+  status: string;
+}
 
 interface SerializedWorkout {
   id: string;
@@ -106,10 +118,16 @@ function computePaceFromDistanceAndDuration(distanceMiles?: number | null, durat
 function WorkoutCard({
   workout,
   variant,
+  availableShoes = [],
+  onShoeChange,
 }: {
   workout: SerializedWorkout;
   variant?: 'today' | 'compact' | 'completed';
+  availableShoes?: SerializedShoe[];
+  onShoeChange?: (workoutId: string, shoeId: string) => void;
 }) {
+  const [showShoeSelector, setShowShoeSelector] = useState(false);
+  const [selectedShoeId, setSelectedShoeId] = useState<string | null>(null);
   const type = workout.workoutType?.toLowerCase?.() || '';
   const status = workout.status;
 
@@ -294,21 +312,107 @@ function WorkoutCard({
                 'Easy run at conversational pace. If breathing becomes labored, reduce pace.'}
             </div>
 
-            <div className="mt-4 rounded-md border border-black/10 bg-white/70 p-4 flex items-center gap-4">
-              <div className="relative h-14 w-20 shrink-0">
-                <Image 
-                  src={shoeImage} 
-                  alt={shoeName} 
-                  width={160}
-                  height={112}
-                  className="object-contain absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" 
-                />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-lg font-normal text-[#4b2a24]">{shoeLabel}</div>
-                <div className="text-sm font-light text-[#4b2a24]/70">{shoeName}</div>
-              </div>
-            </div>
+            {(() => {
+              // Determine which shoe to display
+              const selectedShoe = selectedShoeId 
+                ? availableShoes.find(s => s.id === selectedShoeId)
+                : null;
+              
+              const displayShoe = selectedShoe 
+                ? {
+                    label: selectedShoe.category === 'race' ? 'Race Shoe' 
+                      : selectedShoe.category === 'long_run' ? 'Long Run'
+                      : selectedShoe.category === 'tempo' ? 'Tempo Trainer'
+                      : 'Daily Trainer',
+                    name: `${selectedShoe.brand} ${selectedShoe.model}`,
+                    image: selectedShoe.imageUrl || '/shoes/default.png',
+                    isOverride: true,
+                  }
+                : { label: shoeLabel, name: shoeName, image: shoeImage, isOverride: false };
+              
+              return (
+                <div className="mt-4">
+                  <div 
+                    className="rounded-md border border-black/10 bg-white/70 p-4 flex items-center gap-4 cursor-pointer hover:bg-white/90 transition-colors"
+                    onClick={() => availableShoes.length > 0 && setShowShoeSelector(!showShoeSelector)}
+                  >
+                    <div className="relative h-14 w-20 shrink-0">
+                      <Image 
+                        src={displayShoe.image} 
+                        alt={displayShoe.name} 
+                        width={160}
+                        height={112}
+                        className="object-contain absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" 
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg font-normal text-[#4b2a24]">{displayShoe.label}</span>
+                        {displayShoe.isOverride && (
+                          <span className="text-[10px] px-1.5 py-0.5 bg-[#ff5a2f]/20 text-[#4b2a24] rounded">Override</span>
+                        )}
+                      </div>
+                      <div className="text-sm font-light text-[#4b2a24]/70">{displayShoe.name}</div>
+                    </div>
+                    {availableShoes.length > 0 && (
+                      <div className="text-[#4b2a24]/50">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                          <path strokeLinecap="round" strokeLinejoin="round" d={showShoeSelector ? "M4.5 15.75l7.5-7.5 7.5 7.5" : "M19.5 8.25l-7.5 7.5-7.5-7.5"} />
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Shoe selector dropdown */}
+                  {showShoeSelector && availableShoes.length > 0 && (
+                    <div className="mt-2 rounded-md border border-black/10 bg-white/95 p-2 space-y-1">
+                      <div className="text-[10px] font-medium text-[#4b2a24]/60 px-2 py-1">
+                        SELECT SHOE {selectedShoeId && <button onClick={() => { setSelectedShoeId(null); setShowShoeSelector(false); }} className="ml-2 text-[#ff5a2f] hover:underline">Reset to recommended</button>}
+                      </div>
+                      {availableShoes.map(shoe => (
+                        <button
+                          key={shoe.id}
+                          onClick={() => {
+                            setSelectedShoeId(shoe.id);
+                            setShowShoeSelector(false);
+                            onShoeChange?.(workout.id, shoe.id);
+                          }}
+                          className={`w-full flex items-center gap-3 p-2 rounded hover:bg-[#ff5a2f]/10 transition-colors text-left ${selectedShoeId === shoe.id ? 'bg-[#ff5a2f]/10' : ''}`}
+                        >
+                          <div className="relative h-10 w-14 shrink-0">
+                            <Image 
+                              src={shoe.imageUrl || '/shoes/default.png'} 
+                              alt={`${shoe.brand} ${shoe.model}`}
+                              width={112}
+                              height={80}
+                              className="object-contain"
+                            />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-normal text-[#4b2a24]">{shoe.brand} {shoe.model}</div>
+                            <div className="text-xs text-[#4b2a24]/60">
+                              {shoe.nickname || shoe.category.replace('_', ' ')} • {Math.round(shoe.totalMiles)} mi
+                            </div>
+                          </div>
+                          {selectedShoeId === shoe.id && (
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 text-[#ff5a2f]">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                            </svg>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {/* Recommendation note when overridden */}
+                  {displayShoe.isOverride && (
+                    <div className="mt-2 text-[11px] text-[#4b2a24]/50 italic">
+                      Recommended: {shoeLabel} ({shoeName})
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {(() => {
               const nutrition = getNutritionSummary({
@@ -437,7 +541,15 @@ function groupWorkoutsByDate(workouts: SerializedWorkout[]): Map<string, Seriali
   return grouped;
 }
 
-export function RunCompanionScheduleRail({ workouts }: { workouts: SerializedWorkout[] }) {
+export function RunCompanionScheduleRail({ 
+  workouts, 
+  shoes = [],
+  onShoeChange,
+}: { 
+  workouts: SerializedWorkout[];
+  shoes?: SerializedShoe[];
+  onShoeChange?: (workoutId: string, shoeId: string) => void;
+}) {
   const todayRef = useRef<HTMLDivElement>(null);
   const workoutsByDate = useMemo(() => groupWorkoutsByDate(workouts), [workouts]);
 
@@ -536,12 +648,14 @@ export function RunCompanionScheduleRail({ workouts }: { workouts: SerializedWor
                                   key={w.id}
                                   workout={w}
                                   variant={isBigPlannedRun ? 'today' : isCompletedRun ? 'completed' : 'compact'}
+                                  availableShoes={isBigPlannedRun ? shoes : []}
+                                  onShoeChange={onShoeChange}
                                 />
                               );
                             })}
                           </div>
                         ) : (
-                          <WorkoutCard workout={{ id: `rest-${dateKey}`, title: 'Rest Day', workoutType: 'rest', status: 'planned', scheduledDate: dateKey }} variant="compact" />
+                          <WorkoutCard workout={{ id: `rest-${dateKey}`, title: 'Rest Day', workoutType: 'rest', status: 'planned', scheduledDate: dateKey }} variant="compact" availableShoes={[]} />
                         )}
                       </div>
                     );

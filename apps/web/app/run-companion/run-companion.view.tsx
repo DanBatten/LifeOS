@@ -156,7 +156,22 @@ export function RunCompanionView({
         <div className="grid grid-cols-12 gap-5">
           {/* Left: schedule rail */}
           <section className="col-span-12 lg:col-span-4">
-            <RunCompanionScheduleRail workouts={workouts} />
+            <RunCompanionScheduleRail 
+              workouts={workouts} 
+              shoes={shoes}
+              onShoeChange={async (workoutId, shoeId) => {
+                // Save shoe selection to workout (fire and forget)
+                try {
+                  await fetch('/api/workout/shoe', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ workoutId, shoeId }),
+                  });
+                } catch (e) {
+                  console.error('Failed to save shoe selection:', e);
+                }
+              }}
+            />
           </section>
 
           {/* Middle: chat panel */}
