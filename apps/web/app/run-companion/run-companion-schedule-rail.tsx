@@ -310,8 +310,26 @@ function WorkoutCard({
             </div>
 
             <div className="mt-3 text-[13px] leading-relaxed font-light text-[#4b2a24]/85">
-              {workout.prescribedDescription ||
-                'Easy run at conversational pace. If breathing becomes labored, reduce pace.'}
+              {(() => {
+                // Use prescribedDescription if it looks complete (has pace like :XX), 
+                // otherwise fall back to cleaned-up title
+                const desc = workout.prescribedDescription || '';
+                const titleClean = shortTitle(workout.title);
+                
+                // Check if description looks truncated (ends with "@ X" without minutes)
+                const looksIncomplete = /[@]\s*\d\s*$/.test(desc) || desc.length < 10;
+                
+                if (desc && !looksIncomplete) {
+                  return desc;
+                }
+                
+                // Try title first, then default message
+                if (titleClean && titleClean.length > 5) {
+                  return titleClean;
+                }
+                
+                return 'Easy run at conversational pace. If breathing becomes labored, reduce pace.';
+              })()}
             </div>
 
             {(() => {
