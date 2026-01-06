@@ -143,6 +143,7 @@ export async function syncLatestActivity(
     const garminActivityId = runningActivity.activityId?.toString();
 
     // 2a. Fetch the lap/split data for detailed analysis
+    // Try multiple sources: splits endpoint, then activity details
     let lapData: Array<{
       lapNumber: number;
       distanceMiles: number;
@@ -155,11 +156,56 @@ export async function syncLatestActivity(
     }> = [];
 
     if (runningActivity.activityId) {
+      // Try 1: Splits endpoint
       try {
         lapData = await client.getActivitySplits(runningActivity.activityId);
-        logger.info(`[Skill:SyncLatestActivity] Fetched ${lapData.length} laps for activity ${garminActivityId}`);
+        logger.info(`[Skill:SyncLatestActivity] Fetched ${lapData.length} laps via splits endpoint`);
       } catch (lapError) {
-        logger.warn(`[Skill:SyncLatestActivity] Could not fetch laps: ${lapError}`);
+        logger.warn(`[Skill:SyncLatestActivity] Splits endpoint failed: ${lapError}`);
+      }
+      
+      // Try 2: If no splits, try activity details
+      if (lapData.length === 0) {
+        try {
+          const detailedActivity = await client.getActivity(runningActivity.activityId);
+          logger.info(`[Skill:SyncLatestActivity] Fetched activity details, checking for laps/splits...`);
+          
+          // Check if activity details have laps embedded (garmin-connect library format)
+          const rawActivity = detailedActivity as unknown as Record<string, unknown>;
+          const embeddedSplits = rawActivity.splitSummaries || rawActivity.splits || rawActivity.laps;
+          
+          if (Array.isArray(embeddedSplits) && embeddedSplits.length > 0) {
+            lapData = embeddedSplits.map((s: Record<string, unknown>, idx: number) => {
+              const distM = (s.distance || s.totalDistance || 0) as number;
+              const durS = (s.duration || s.elapsedDuration || s.movingDuration || 0) as number;
+              const distMi = distM / 1609.34;
+              
+              let pace: string | null = null;
+              if (distMi > 0 && durS > 0) {
+                const paceSeconds = durS / distMi;
+                pace = `${Math.floor(paceSeconds / 60)}:${String(Math.round(paceSeconds % 60)).padStart(2, '0')}/mi`;
+              }
+              
+              return {
+                lapNumber: idx + 1,
+                distanceMiles: Math.round(distMi * 100) / 100,
+                durationSeconds: durS,
+                pacePerMile: pace,
+                avgHeartRate: s.averageHR as number | undefined,
+                maxHeartRate: s.maxHR as number | undefined,
+                avgCadence: s.averageRunCadence as number | undefined,
+                elevationGainFt: s.elevationGain ? Math.round((s.elevationGain as number) * 3.28084) : undefined,
+              };
+            });
+            logger.info(`[Skill:SyncLatestActivity] Extracted ${lapData.length} laps from activity details`);
+          }
+        } catch (detailError) {
+          logger.warn(`[Skill:SyncLatestActivity] Could not get activity details: ${detailError}`);
+        }
+      }
+      
+      if (lapData.length === 0) {
+        logger.warn(`[Skill:SyncLatestActivity] No splits available for activity ${garminActivityId}`);
       }
     }
 
