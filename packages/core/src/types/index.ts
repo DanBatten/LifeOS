@@ -308,6 +308,8 @@ export interface Workout {
   // Execution
   plannedDurationMinutes?: number;
   actualDurationMinutes?: number;
+  actualDistanceMiles?: number;
+  actualPacePerMile?: string;
   startedAt?: Date;
   completedAt?: Date;
   
@@ -350,6 +352,7 @@ export interface Workout {
   
   // Feedback
   personalNotes?: string;
+  athleteFeedback?: string;
   perceivedExertion?: number;
   perceivedDifficulty?: string;
   discomfortNotes?: string;

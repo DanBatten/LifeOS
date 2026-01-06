@@ -65,13 +65,18 @@ interface Workout {
   scheduledDate: string;
   plannedDurationMinutes: number | null;
   actualDurationMinutes: number | null;
+  actualDistanceMiles: number | null;
+  actualPacePerMile: string | null;
   prescribedDescription: string | null;
   prescribedDistanceMiles: number | null;
   prescribedPacePerMile: string | null;
   avgHeartRate: number | null;
   maxHeartRate: number | null;
+  cadenceAvg: number | null;
+  elevationGainFt: number | null;
   splits: unknown[];
   coachNotes: string | null;
+  athleteFeedback: string | null;
   weekNumber: number | null;
 }
 
@@ -347,6 +352,23 @@ function transformHealthSnapshot(data: Record<string, unknown> | null): HealthSn
 function transformWorkout(data: Record<string, unknown> | null | undefined): Workout | null {
   if (!data) return null;
   
+  // Extract metadata for additional fields (Garmin sync stores data here)
+  const metadata = (data.metadata || {}) as Record<string, unknown>;
+  
+  // Get splits from either the splits column or metadata.laps (Garmin sync)
+  const splits = (data.splits as unknown[])?.length 
+    ? (data.splits as unknown[]) 
+    : (metadata.laps as unknown[]) || [];
+  
+  // Get actual distance/pace from metadata if not in columns
+  const actualDistanceMiles = (data.actual_distance_miles as number | null) 
+    || (metadata.actual_distance_miles as number | null);
+  const actualPacePerMile = (metadata.actual_pace as string | null);
+  const cadenceAvg = (data.cadence_avg as number | null) 
+    || (metadata.cadence_avg as number | null);
+  const elevationGainFt = (data.elevation_gain_ft as number | null) 
+    || (metadata.elevation_gain_ft as number | null);
+  
   return {
     id: data.id as string,
     title: data.title as string,
@@ -358,10 +380,15 @@ function transformWorkout(data: Record<string, unknown> | null | undefined): Wor
     prescribedDescription: data.prescribed_description as string | null,
     prescribedDistanceMiles: data.prescribed_distance_miles as number | null,
     prescribedPacePerMile: data.prescribed_pace_per_mile as string | null,
+    actualDistanceMiles,
+    actualPacePerMile,
     avgHeartRate: data.avg_heart_rate as number | null,
     maxHeartRate: data.max_heart_rate as number | null,
-    splits: (data.splits as unknown[]) || [],
+    cadenceAvg,
+    elevationGainFt,
+    splits,
     coachNotes: data.coach_notes as string | null,
+    athleteFeedback: data.personal_notes as string | null,
     weekNumber: data.week_number as number | null,
   };
 }

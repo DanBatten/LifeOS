@@ -478,6 +478,37 @@ Using adapt_plan, determine:
     const todayInUserTz = userNow.toISOString().split('T')[0];
     const yesterdayInUserTz = new Date(userNow.getTime() - 86400000).toISOString().split('T')[0];
 
+    // Format recent workouts with all available data including splits
+    const formatRecentWorkout = (w: Workout) => {
+      const lines = [
+        `- [ID: ${w.id || 'unknown'}] ${w.scheduled_date}: ${w.title}`,
+        `  Status: ${w.status || '?'}`,
+        `  Prescribed: ${w.prescribed_distance_miles || '?'} mi @ ${w.prescribed_pace || w.prescribed_description || 'N/A'}`,
+      ];
+      
+      // Add actual data if completed
+      if (w.status === 'completed') {
+        lines.push(`  Actual: ${w.actual_distance_miles || w.distance_miles || '?'} mi in ${w.actual_duration_minutes || '?'} min`);
+        lines.push(`  Avg Pace: ${w.avg_pace || 'calculated: ' + (w.actual_duration_minutes && w.actual_distance_miles ? Math.floor(w.actual_duration_minutes / w.actual_distance_miles) + ':' + String(Math.round((w.actual_duration_minutes / w.actual_distance_miles % 1) * 60)).padStart(2, '0') + '/mi' : 'N/A')}`);
+        lines.push(`  HR: ${w.avg_heart_rate || '?'} avg / ${w.max_heart_rate || '?'} max`);
+        lines.push(`  Cadence: ${w.cadence_avg || 'N/A'} spm`);
+      }
+      
+      // Add splits if available
+      if (w.splits && Array.isArray(w.splits) && w.splits.length > 0) {
+        lines.push(`  SPLITS (per-mile): ${JSON.stringify(w.splits)}`);
+      } else {
+        lines.push(`  SPLITS: Not available - cannot calculate per-mile breakdown`);
+      }
+      
+      // Add athlete notes if present
+      if (w.personal_notes) {
+        lines.push(`  Athlete notes: "${w.personal_notes}"`);
+      }
+      
+      return lines.join('\n');
+    };
+
     return `The athlete sent this message:
 "${userMessage}"
 
@@ -488,15 +519,26 @@ Using adapt_plan, determine:
 - When athlete says "yesterday" or "last run", use: ${yesterdayInUserTz}
 - When athlete says "today", use: ${todayInUserTz}
 
+## CRITICAL DATA HONESTY RULES
+**YOU MUST ONLY USE DATA EXPLICITLY PROVIDED BELOW. DO NOT:**
+- Make up split/lap times if "SPLITS: Not available" is shown
+- Invent pace breakdowns for warmup/main set/cooldown unless you have the actual splits
+- Guess at segment paces based on averages - that's statistically invalid
+- Claim you "calculated" something you didn't have data for
+
+**IF SPLITS ARE NOT AVAILABLE:**
+- Acknowledge you only have overall average pace
+- Explain you cannot verify warmup/main set/cooldown execution
+- Ask the athlete what their watch showed for specific segments if needed
+- DO NOT fabricate a breakdown
+
 ## UPCOMING WORKOUTS (with IDs for modification)
 ${upcomingWorkouts.map((w) =>
   `- [ID: ${w.id || 'unknown'}] ${w.scheduled_date}: ${w.title} (${w.prescribed_distance_miles || '?'} mi) - Status: ${w.status || 'planned'}`
 ).join('\n') || 'No upcoming workouts'}
 
-## RECENT WORKOUTS (last 7 days)
-${recentWorkouts.slice(0, 7).map((w) =>
-  `- [ID: ${w.id || 'unknown'}] ${w.scheduled_date}: ${w.title} - Status: ${w.status || '?'}, ${w.actual_duration_minutes || '?'} min, ${w.avg_heart_rate || '?'} bpm`
-).join('\n') || 'No recent workouts'}
+## RECENT WORKOUTS (last 7 days) - DETAILED VIEW
+${recentWorkouts.slice(0, 7).map(formatRecentWorkout).join('\n\n') || 'No recent workouts'}
 
 ## TODAY'S HEALTH
 - Sleep: ${healthData.sleepHours || '?'} hrs
